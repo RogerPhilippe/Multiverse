@@ -3,20 +3,23 @@ const path = require('node:path');
 const fs = require('node:fs');
 const crypto = require('node:crypto');
 
-// Migra os dados da época em que o app se chamava "claude-browser" (mantém os logins).
-// O Electron cria a pasta nova antes deste código rodar, então movemos só o que importa:
-// a lista de contas e as partições (lidas depois do app iniciar). O resto é cache.
-const legacyUserData = path.join(app.getPath('appData'), 'claude-browser');
-if (fs.existsSync(path.join(legacyUserData, 'accounts.json'))) {
-  for (const item of ['accounts.json', 'Partitions']) {
-    const from = path.join(legacyUserData, item);
-    const to = path.join(app.getPath('userData'), item);
-    if (!fs.existsSync(from)) continue;
-    fs.rmSync(to, { recursive: true, force: true });
-    fs.renameSync(from, to);
-  }
-  fs.rmSync(legacyUserData, { recursive: true, force: true });
+// Em desenvolvimento (npm start) usa uma pasta própria, para nunca disputar
+// os dados (logins) com o app instalado.
+if (!app.isPackaged) {
+  app.setPath('userData', path.join(app.getPath('appData'), 'Multiverse Dev'));
 }
+
+// Uma instância por pasta de dados: abrir de novo só traz a janela para frente.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+  process.exit(0);
+}
+app.on('second-instance', () => {
+  if (!win) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+});
 
 const START_URL = 'https://claude.ai/';
 const TAB_BAR_HEIGHT = 40;
@@ -186,8 +189,7 @@ async function removeAccount(id) {
 
   const ses = views.get(id)?.webContents.session;
   destroyView(id);
-  await ses?.clearStorageData();
-  await ses?.clearCache();
+  await clearSession(ses);
 
   const index = state.accounts.indexOf(account);
   state.accounts.splice(index, 1);
@@ -202,6 +204,47 @@ async function removeAccount(id) {
   saveState();
   layout();
   broadcast();
+}
+
+async function clearSession(ses) {
+  await ses?.clearStorageData();
+  await ses?.clearCache();
+}
+
+// Apaga o login (cookies, armazenamento, cache) mas mantém as abas.
+async function logout(ids) {
+  const accounts = state.accounts.filter((a) => ids.includes(a.id));
+  if (accounts.length === 0) return;
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'warning',
+    buttons: ['Sair', 'Cancelar'],
+    defaultId: 1,
+    cancelId: 1,
+    message: accounts.length === 1
+      ? `Sair da conta "${accounts[0].name}"?`
+      : `Sair de todas as ${accounts.length} contas?`,
+    detail: 'O login e os dados salvos serão apagados deste app. As abas continuam, prontas para um novo login.',
+  });
+  if (response !== 0) return;
+
+  for (const account of accounts) {
+    const wc = views.get(account.id)?.webContents;
+    if (!wc) continue;
+    await clearSession(wc.session);
+    wc.loadURL(START_URL);
+  }
+}
+
+function showTabMenu(id) {
+  const account = state.accounts.find((a) => a.id === id);
+  if (!account) return;
+  Menu.buildFromTemplate([
+    { label: 'Renomear', click: () => { win.webContents.focus(); win.webContents.send('ui:rename', id); } },
+    { label: 'Recarregar', click: () => views.get(id)?.webContents.reload() },
+    { type: 'separator' },
+    { label: 'Sair desta conta (apagar login)…', click: () => logout([id]) },
+    { label: 'Remover aba…', click: () => removeAccount(id) },
+  ]).popup({ window: win });
 }
 
 function cycle(step) {
@@ -219,6 +262,7 @@ ipcMain.on('tabs:activate', (_e, id) => activate(id));
 ipcMain.on('tabs:rename', (_e, id, name) => rename(id, name));
 ipcMain.on('tabs:remove', (_e, id) => removeAccount(id));
 ipcMain.on('tabs:reload', (_e, id) => views.get(id)?.webContents.reload());
+ipcMain.on('tabs:context', (_e, id) => showTabMenu(id));
 
 // ---------- menu / atalhos ----------
 
@@ -238,6 +282,9 @@ function buildMenu() {
         { label: 'Nova conta', accelerator: 'CmdOrCtrl+T', click: () => { win.webContents.focus(); win.webContents.send('ui:new-tab'); } },
         { label: 'Próxima aba', accelerator: 'Ctrl+Tab', click: () => cycle(1) },
         { label: 'Aba anterior', accelerator: 'Ctrl+Shift+Tab', click: () => cycle(-1) },
+        { type: 'separator' },
+        { label: 'Sair desta conta (apagar login)…', click: () => state.activeId && logout([state.activeId]) },
+        { label: 'Sair de todas as contas…', click: () => logout(state.accounts.map((a) => a.id)) },
         { type: 'separator' },
         ...tabShortcuts,
       ],

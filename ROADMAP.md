@@ -48,12 +48,20 @@ O isolamento já é por **conta**, não por serviço: cada aba tem a própria pa
 
 ## Identidade
 
-- [x] Nome genérico: **Multiverse** (antes `claude-browser`, com migração automática dos dados).
+- [x] Nome genérico: **Multiverse** (antes `claude-browser`).
 - [x] Slogan: **"Cada conta no seu universo."**
 - [ ] Renomear a pasta do projeto (`ClaudeBrowser` → `Multiverse`).
 - [x] Ícone do app (`build/icon.svg`, gerado com `npm run icons`).
 
-Ao mudar o `productName` de novo, lembrar que a pasta de dados vem dele: é preciso migrar como o `main.js` já faz com `claude-browser`.
+Ao mudar o `productName` de novo, lembrar que a pasta de dados vem dele: sem migração, os logins salvos não são encontrados.
+
+## Segurança
+
+- [x] Sair de uma conta ou de todas (apaga o login e mantém as abas).
+- [x] Instância única e pasta de dados separada em desenvolvimento.
+- [ ] Criptografar cookies com chave no Chaveiro do sistema (fuse `EnableCookieEncryption`).
+- [ ] Desligar fuses de depuração no app empacotado (`RunAsNode`, `EnableNodeOptionsEnvironmentVariable`, `EnableNodeCliInspectArguments`) e ligar a validação de integridade do asar.
+- [ ] Opção "Não lembrar login" por conta.
 
 ## Outras ideias
 

@@ -33,7 +33,7 @@ function render() {
     const tab = document.createElement('div');
     tab.className = 'tab' + (account.id === state.activeId ? ' active' : '');
     tab.title = `${account.name}${account.title ? ' — ' + account.title : ''}\n` +
-      `${i < 9 ? `⌘${i + 1} · ` : ''}duplo clique para renomear`;
+      `${i < 9 ? `⌘${i + 1} · ` : ''}clique direito para mais opções`;
 
     const dot = document.createElement('span');
     dot.className = 'dot';
@@ -63,6 +63,7 @@ function render() {
     });
     tab.addEventListener('dblclick', () => { editingId = account.id; render(); });
     tab.addEventListener('auxclick', (e) => { if (e.button === 1) window.tabs.reload(account.id); });
+    tab.addEventListener('contextmenu', (e) => { e.preventDefault(); window.tabs.contextMenu(account.id); });
     bar.append(tab);
   });
 
@@ -89,4 +90,5 @@ function startAdding() {
 
 window.tabs.onUpdate((s) => { state = s; render(); });
 window.tabs.onNewTab(startAdding);
+window.tabs.onRename((id) => { editingId = id; render(); });
 window.tabs.get().then((s) => { state = s; render(); });
