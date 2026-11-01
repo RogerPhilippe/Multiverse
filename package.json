@@ -1,0 +1,15 @@
+{
+  "name": "multiverse",
+  "productName": "Multiverse",
+  "version": "1.0.0",
+  "description": "Multiverse — cada conta no seu universo. Várias contas de assistentes de IA em abas, com sessões isoladas.",
+  "main": "src/main.js",
+  "private": true,
+  "scripts": {
+    "start": "env -u ELECTRON_RUN_AS_NODE electron .",
+    "icons": "env -u ELECTRON_RUN_AS_NODE electron scripts/build-icons.js"
+  },
+  "devDependencies": {
+    "electron": "^45.2.1"
+  }
+}
