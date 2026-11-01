@@ -60,10 +60,7 @@ O app não tem certificado da Apple nem da Microsoft:
 | --- | --- |
 | Nova conta | `+` na barra ou ⌘T |
 | Renomear aba | Duplo clique na aba |
-| Mais opções (renomear, recarregar, sair, remover) | Clique direito na aba |
-| Sair da conta (apaga o login, mantém a aba) | Clique direito → *Sair desta conta* ou menu **Contas** |
-| Sair de todas as contas | Menu **Contas → Sair de todas as contas…** |
-| Remover aba (apaga o login e a aba) | Clique direito → *Remover aba…* |
+| Remover conta (apaga login e dados, fecha a aba) | Clique direito na aba → *Remover conta…* |
 | Trocar de aba | ⌘1…⌘9, Ctrl+Tab / Ctrl+Shift+Tab |
 | Recarregar aba | ⌘R ou clique do meio na aba |
 | Voltar / avançar | ⌘[ / ⌘] |
@@ -100,4 +97,4 @@ scripts/
 
 O caminho vem do `productName` do `package.json`. Em desenvolvimento (`npm start`), o app usa `~/Library/Application Support/Multiverse Dev/`, para nunca disputar dados com o app instalado. Só uma instância roda por pasta de dados: abrir de novo traz a janela existente para frente.
 
-**Segurança:** o login fica salvo de propósito, para não pedir credenciais a cada abertura. Os cookies ficam nos arquivos acima, protegidos pelas permissões do usuário (ainda sem criptografia; veja o [ROADMAP.md](ROADMAP.md)). Para apagar um login, use *Sair desta conta* ou *Remover aba*.
+**Segurança:** o login fica salvo de propósito, para não pedir credenciais a cada abertura. Os cookies ficam nos arquivos acima, protegidos pelas permissões do usuário (ainda sem criptografia; veja o [ROADMAP.md](ROADMAP.md)). Para apagar um login, use *Remover conta…*.

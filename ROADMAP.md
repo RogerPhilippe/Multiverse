@@ -57,7 +57,7 @@ Ao mudar o `productName` de novo, lembrar que a pasta de dados vem dele: sem mig
 
 ## Segurança
 
-- [x] Sair de uma conta ou de todas (apaga o login e mantém as abas).
+- [x] Remover conta pelo clique direito (apaga login e dados, fecha a aba).
 - [x] Instância única e pasta de dados separada em desenvolvimento.
 - [ ] Criptografar cookies com chave no Chaveiro do sistema (fuse `EnableCookieEncryption`).
 - [ ] Desligar fuses de depuração no app empacotado (`RunAsNode`, `EnableNodeOptionsEnvironmentVariable`, `EnableNodeCliInspectArguments`) e ligar a validação de integridade do asar.

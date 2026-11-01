@@ -6,7 +6,6 @@ contextBridge.exposeInMainWorld('tabs', {
   add: (name) => ipcRenderer.send('tabs:add', name),
   activate: (id) => ipcRenderer.send('tabs:activate', id),
   rename: (id, name) => ipcRenderer.send('tabs:rename', id, name),
-  remove: (id) => ipcRenderer.send('tabs:remove', id),
   reload: (id) => ipcRenderer.send('tabs:reload', id),
   contextMenu: (id) => ipcRenderer.send('tabs:context', id),
   onUpdate: (fn) => ipcRenderer.on('tabs:update', (_e, state) => fn(state)),

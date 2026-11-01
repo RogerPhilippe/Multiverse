@@ -182,14 +182,15 @@ async function removeAccount(id) {
     buttons: ['Remover', 'Cancelar'],
     defaultId: 1,
     cancelId: 1,
-    message: `Remover a aba "${account.name}"?`,
-    detail: 'O login e os dados desta conta serão apagados deste app.',
+    message: `Remover a conta "${account.name}"?`,
+    detail: 'O login e todos os dados desta conta serão apagados deste app, e a aba será fechada.',
   });
   if (response !== 0) return;
 
   const ses = views.get(id)?.webContents.session;
   destroyView(id);
-  await clearSession(ses);
+  await ses?.clearStorageData();
+  await ses?.clearCache();
 
   const index = state.accounts.indexOf(account);
   state.accounts.splice(index, 1);
@@ -206,35 +207,6 @@ async function removeAccount(id) {
   broadcast();
 }
 
-async function clearSession(ses) {
-  await ses?.clearStorageData();
-  await ses?.clearCache();
-}
-
-// Apaga o login (cookies, armazenamento, cache) mas mantém as abas.
-async function logout(ids) {
-  const accounts = state.accounts.filter((a) => ids.includes(a.id));
-  if (accounts.length === 0) return;
-  const { response } = await dialog.showMessageBox(win, {
-    type: 'warning',
-    buttons: ['Sair', 'Cancelar'],
-    defaultId: 1,
-    cancelId: 1,
-    message: accounts.length === 1
-      ? `Sair da conta "${accounts[0].name}"?`
-      : `Sair de todas as ${accounts.length} contas?`,
-    detail: 'O login e os dados salvos serão apagados deste app. As abas continuam, prontas para um novo login.',
-  });
-  if (response !== 0) return;
-
-  for (const account of accounts) {
-    const wc = views.get(account.id)?.webContents;
-    if (!wc) continue;
-    await clearSession(wc.session);
-    wc.loadURL(START_URL);
-  }
-}
-
 function showTabMenu(id) {
   const account = state.accounts.find((a) => a.id === id);
   if (!account) return;
@@ -242,8 +214,7 @@ function showTabMenu(id) {
     { label: 'Renomear', click: () => { win.webContents.focus(); win.webContents.send('ui:rename', id); } },
     { label: 'Recarregar', click: () => views.get(id)?.webContents.reload() },
     { type: 'separator' },
-    { label: 'Sair desta conta (apagar login)…', click: () => logout([id]) },
-    { label: 'Remover aba…', click: () => removeAccount(id) },
+    { label: 'Remover conta…', click: () => removeAccount(id) },
   ]).popup({ window: win });
 }
 
@@ -260,7 +231,6 @@ ipcMain.handle('tabs:get', () => state);
 ipcMain.on('tabs:add', (_e, name) => addAccount(name));
 ipcMain.on('tabs:activate', (_e, id) => activate(id));
 ipcMain.on('tabs:rename', (_e, id, name) => rename(id, name));
-ipcMain.on('tabs:remove', (_e, id) => removeAccount(id));
 ipcMain.on('tabs:reload', (_e, id) => views.get(id)?.webContents.reload());
 ipcMain.on('tabs:context', (_e, id) => showTabMenu(id));
 
@@ -282,9 +252,6 @@ function buildMenu() {
         { label: 'Nova conta', accelerator: 'CmdOrCtrl+T', click: () => { win.webContents.focus(); win.webContents.send('ui:new-tab'); } },
         { label: 'Próxima aba', accelerator: 'Ctrl+Tab', click: () => cycle(1) },
         { label: 'Aba anterior', accelerator: 'Ctrl+Shift+Tab', click: () => cycle(-1) },
-        { type: 'separator' },
-        { label: 'Sair desta conta (apagar login)…', click: () => state.activeId && logout([state.activeId]) },
-        { label: 'Sair de todas as contas…', click: () => logout(state.accounts.map((a) => a.id)) },
         { type: 'separator' },
         ...tabShortcuts,
       ],
