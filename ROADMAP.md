@@ -57,7 +57,9 @@ Ao mudar o `productName` de novo, lembrar que a pasta de dados vem dele: é prec
 
 ## Outras ideias
 
-- [ ] Empacotar como `.app` (electron-builder) para abrir pelo Dock.
+- [x] Empacotar (electron-builder) e release automático no GitHub (mac arm64, win x64, linux x64).
+- [ ] Assinar e notarizar (Apple Developer ID, certificado Windows) para remover os avisos de segurança.
+- [ ] Atualização automática (electron-updater, usando os `latest*.yml` do release).
 - [ ] Reordenar abas arrastando.
 - [ ] Badge/contador de notificações por aba.
 - [ ] Cor personalizada por aba.

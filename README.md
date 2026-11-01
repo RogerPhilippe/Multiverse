@@ -19,6 +19,41 @@ npm start
 
 > O `start` usa `env -u ELECTRON_RUN_AS_NODE` porque o terminal do VS Code define essa variável, e com ela o Electron roda como Node puro e não abre a janela.
 
+## Gerar instaladores
+
+Localmente (sai em `dist/`):
+
+```bash
+npm run dist -- --mac --arm64     # ou --win --x64, --linux --x64
+```
+
+### Release no GitHub
+
+O workflow [.github/workflows/release.yml](.github/workflows/release.yml) gera os instaladores e cria o release quando uma tag `v*` é enviada:
+
+```bash
+npm version patch          # 1.0.0 → 1.0.1 (ou minor/major); cria commit + tag
+git push --follow-tags
+```
+
+| Sistema | Arquivos |
+| --- | --- |
+| macOS Apple Silicon | `.dmg`, `.zip` |
+| Windows x64 | `.exe` (instalador NSIS) |
+| Linux x64 | `.AppImage`, `.deb` |
+
+O workflow falha se a tag não bater com a `version` do `package.json`.
+
+### Instaladores sem assinatura
+
+O app não tem certificado da Apple nem da Microsoft:
+
+- **macOS:** depois de baixar, o sistema pode dizer que o app está "danificado". Para liberar:
+  ```bash
+  xattr -cr /Applications/Multiverse.app
+  ```
+- **Windows:** o SmartScreen avisa "O Windows protegeu o computador". Clique em *Mais informações → Executar assim mesmo*.
+
 ## Uso
 
 | Ação | Como |
@@ -49,6 +84,8 @@ build/
   icon.svg     fonte do ícone (três anéis = três universos)
   icon.png     1024px, gerado
   icon.icns    macOS, gerado
+.github/workflows/
+  release.yml     build mac/win/linux e release no GitHub
 scripts/
   build-icons.js  gera icon.png e icon.icns a partir do SVG (`npm run icons`)
 ```

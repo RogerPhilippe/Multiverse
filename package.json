@@ -3,13 +3,92 @@
   "productName": "Multiverse",
   "version": "1.0.0",
   "description": "Multiverse — cada conta no seu universo. Várias contas de assistentes de IA em abas, com sessões isoladas.",
+  "author": {
+    "name": "Roger Philippe",
+    "email": "rogerphilippe@outlook.com"
+  },
+  "homepage": "https://github.com/RogerPhilippe/Multiverse",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RogerPhilippe/Multiverse.git"
+  },
   "main": "src/main.js",
   "private": true,
   "scripts": {
     "start": "env -u ELECTRON_RUN_AS_NODE electron .",
-    "icons": "env -u ELECTRON_RUN_AS_NODE electron scripts/build-icons.js"
+    "icons": "env -u ELECTRON_RUN_AS_NODE electron scripts/build-icons.js",
+    "dist": "env -u ELECTRON_RUN_AS_NODE electron-builder --publish never"
+  },
+  "build": {
+    "appId": "com.rogerphilippe.multiverse",
+    "productName": "Multiverse",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "build/icon.png",
+      "package.json"
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.productivity",
+      "icon": "build/icon.icns",
+      "identity": "-",
+      "hardenedRuntime": false
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Network",
+      "icon": "build/icon.png",
+      "maintainer": "Roger Philippe <rogerphilippe@outlook.com>"
+    }
   },
   "devDependencies": {
-    "electron": "^45.2.1"
+    "electron": "^45.2.1",
+    "electron-builder": "^26.18.0"
   }
 }
