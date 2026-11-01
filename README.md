@@ -63,7 +63,7 @@ O app não tem certificado da Apple nem da Microsoft:
 | Mais opções (renomear, recarregar, sair, remover) | Clique direito na aba |
 | Sair da conta (apaga o login, mantém a aba) | Clique direito → *Sair desta conta* ou menu **Contas** |
 | Sair de todas as contas | Menu **Contas → Sair de todas as contas…** |
-| Remover aba (apaga o login e a aba) | `×` na aba |
+| Remover aba (apaga o login e a aba) | Clique direito → *Remover aba…* |
 | Trocar de aba | ⌘1…⌘9, Ctrl+Tab / Ctrl+Shift+Tab |
 | Recarregar aba | ⌘R ou clique do meio na aba |
 | Voltar / avançar | ⌘[ / ⌘] |

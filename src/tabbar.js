@@ -49,13 +49,6 @@ function render() {
       name.className = 'name';
       name.textContent = account.name;
       tab.append(name);
-
-      const close = document.createElement('button');
-      close.className = 'close';
-      close.textContent = '×';
-      close.title = 'Remover conta';
-      close.addEventListener('click', (e) => { e.stopPropagation(); window.tabs.remove(account.id); });
-      tab.append(close);
     }
 
     tab.addEventListener('mousedown', (e) => {

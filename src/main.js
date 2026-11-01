@@ -159,7 +159,7 @@ function addAccount(name) {
 }
 
 function activate(id) {
-  if (!views.has(id)) return;
+  if (!views.has(id) || id === state.activeId) return;
   state.activeId = id;
   saveState();
   layout();
