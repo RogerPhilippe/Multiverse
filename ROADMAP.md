@@ -1,28 +1,18 @@
 # Roadmap
 
-## Suporte a outros serviços
+## Outros serviços (testado e descartado)
 
-- [x] Catálogo em `src/services.js`: Claude, Gemini, ChatGPT, Gmail, Outlook, Google Drive, OneDrive.
-- [x] Campo `service` por conta (contas antigas viram `claude`).
-- [x] Tela "Nova aba" com um botão por serviço; cor do serviço na aba.
-- [x] Popups: login pequeno, páginas do serviço em janela grande, o resto no navegador padrão.
-- [x] Carregamento sob demanda (só a aba ativa carrega ao abrir).
-- [ ] Ícones de verdade (hoje: letra sobre a cor do serviço).
-- [ ] Suspender abas inativas há muito tempo.
-- [ ] Opção de abas compartilharem a sessão (ex.: Gmail + Drive + Gemini com um só login Google).
+Na versão 1.1.0 o app teve Gemini, ChatGPT, Gmail, Outlook, Google Drive e OneDrive, escolhidos numa tela de "Nova aba". Foi revertido para **só Claude**: os outros não funcionaram bem, principalmente com contas Google. O código está no histórico do git (commits da 1.1.0).
 
-### Login com Google
+**Login do Google** ("Este navegador ou app pode não ser seguro"), tentativas:
 
-Já visto no Claude: o popup "Continuar com Google" mostrou **"Não foi possível fazer login. Este navegador ou app pode não ser seguro"**. Afeta também Gemini, Gmail e Drive, que não têm outro login. Causa provável: o User-Agent diz Chrome, mas os Client Hints (`Sec-CH-UA`, `navigator.userAgentData`) dizem Chromium/Electron. Próximos passos, em ordem:
+1. User-Agent de Chrome: bloqueado.
+2. Fingir Firefox em `accounts.google.com` (cabeçalhos + `navigator`): a página via Firefox de fato, e mesmo assim bloqueou. O BotGuard do Google testa o motor (WebGPU, etc.), não só o que o navegador diz ser.
+3. Fingir Google Chrome completo (marca "Google Chrome" nos Client Hints). Depois disso, a decisão foi manter só o Claude.
 
-1. Só em `accounts.google.com`: User-Agent de Firefox (que não usa Client Hints) e remover os cabeçalhos `Sec-CH-UA*` (técnica usada por Ferdium/Rambox).
-2. Abrir o login numa janela comum do app em vez de popup.
-3. Em último caso, logar no navegador do sistema e importar cookies (complexo, evitar).
+Descartado: abrir os serviços num navegador de verdade (Edge/Chrome) fora das abas, porque tira a função principal do app; importar cookies de outro navegador (frágil, sessões presas ao dispositivo).
 
-### Outros riscos
-
-- **ChatGPT** usa Cloudflare, que pode pedir verificação humana. Normalmente passa após o desafio.
-- **Downloads** (anexos, arquivos do Drive/OneDrive) usam o diálogo padrão do Electron; se incomodar, tratar `will-download`.
+Ficaram da 1.1.0: carregamento sob demanda com indicador na aba e remoção de conta em segundo plano. Abas de outros serviços criadas na 1.1.0 são removidas ao abrir, e os dados delas apagados.
 
 ## Identidade
 

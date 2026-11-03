@@ -1,7 +1,9 @@
 const bar = document.getElementById('bar');
+const COLORS = ['#d97757', '#6a9bcc', '#788c5d', '#c4a35a', '#a77bca', '#cc6a8f', '#5fa8a0', '#b0aea5'];
 
-let state = { accounts: [], activeId: null, picking: false, services: [] };
+let state = { accounts: [], activeId: null, loading: [] };
 let editingId = null; // aba sendo renomeada
+let adding = false;   // campo de "nova conta" aberto
 
 document.body.classList.add(window.tabs.platform);
 
@@ -24,38 +26,37 @@ function inlineInput(value, placeholder, onCommit, onCancel) {
   return input;
 }
 
-function tabElement(label, color, active) {
-  const tab = document.createElement('div');
-  tab.className = 'tab' + (active ? ' active' : '');
-  const dot = document.createElement('span');
-  dot.className = 'dot';
-  dot.style.background = color;
-  tab.append(dot);
-  if (label !== null) {
-    const name = document.createElement('span');
-    name.className = 'name';
-    name.textContent = label;
-    tab.append(name);
-  }
-  return tab;
-}
-
 function render() {
   bar.replaceChildren();
-  const services = Object.fromEntries(state.services.map((s) => [s.id, s]));
+  const loading = new Set(state.loading);
 
   state.accounts.forEach((account, i) => {
-    const service = services[account.service];
-    const editing = editingId === account.id;
-    const tab = tabElement(editing ? null : account.name, service?.color ?? '#b0aea5',
-      account.id === state.activeId && !state.picking);
-    tab.title = `${account.name} · ${service?.name ?? ''}${account.title ? ' — ' + account.title : ''}\n` +
+    const tab = document.createElement('div');
+    tab.className = 'tab' + (account.id === state.activeId ? ' active' : '');
+    tab.title = `${account.name}${account.title ? ' — ' + account.title : ''}` +
+      `${loading.has(account.id) ? ' (carregando…)' : ''}\n` +
       `${i < 9 ? `⌘${i + 1} · ` : ''}clique direito para mais opções`;
 
-    if (editing) {
-      tab.append(inlineInput(account.name, 'Nome da aba',
+    const dot = document.createElement('span');
+    dot.className = 'dot';
+    const color = COLORS[i % COLORS.length];
+    if (loading.has(account.id)) {
+      dot.classList.add('loading'); // anel girando enquanto a aba carrega
+      dot.style.borderColor = color;
+    } else {
+      dot.style.background = color;
+    }
+    tab.append(dot);
+
+    if (editingId === account.id) {
+      tab.append(inlineInput(account.name, 'Nome da conta',
         (name) => { editingId = null; window.tabs.rename(account.id, name); render(); },
         () => { editingId = null; render(); }));
+    } else {
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = account.name;
+      tab.append(name);
     }
 
     tab.addEventListener('mousedown', (e) => {
@@ -67,20 +68,28 @@ function render() {
     bar.append(tab);
   });
 
-  if (state.picking) {
-    const tab = tabElement('Nova aba', 'transparent', true);
-    tab.classList.add('new');
-    bar.append(tab);
+  if (adding) {
+    const input = inlineInput('', `Conta ${state.accounts.length + 1}`,
+      (name) => { adding = false; window.tabs.add(name); render(); },
+      () => { adding = false; render(); });
+    input.id = 'new-input';
+    bar.append(input);
+  } else {
+    const add = document.createElement('button');
+    add.id = 'add';
+    add.textContent = '+';
+    add.title = 'Nova conta (⌘T)';
+    add.addEventListener('click', startAdding);
+    bar.append(add);
   }
+}
 
-  const add = document.createElement('button');
-  add.id = 'add';
-  add.textContent = '+';
-  add.title = 'Nova aba (⌘T)';
-  add.addEventListener('click', () => window.tabs.newTab());
-  bar.append(add);
+function startAdding() {
+  adding = true;
+  render();
 }
 
 window.tabs.onUpdate((s) => { state = s; render(); });
+window.tabs.onNewTab(startAdding);
 window.tabs.onRename((id) => { editingId = id; render(); });
 window.tabs.get().then((s) => { state = s; render(); });

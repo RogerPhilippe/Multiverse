@@ -2,7 +2,6 @@ const { app, BrowserWindow, WebContentsView, ipcMain, shell, Menu, dialog, sessi
 const path = require('node:path');
 const fs = require('node:fs');
 const crypto = require('node:crypto');
-const { SERVICES, AUTH_HOSTS, DEFAULT_SERVICE } = require('./services');
 
 // Em desenvolvimento (npm start) usa uma pasta própria, para nunca disputar
 // os dados (logins) com o app instalado.
@@ -22,13 +21,18 @@ app.on('second-instance', () => {
   win.focus();
 });
 
+const START_URL = 'https://claude.ai/';
 const TAB_BAR_HEIGHT = 40;
 const ICON = path.join(__dirname, '..', 'build', 'icon.png');
 
-const serviceById = Object.fromEntries(SERVICES.map((s) => [s.id, s]));
-const serviceOf = (account) => serviceById[account.service] ?? serviceById[DEFAULT_SERVICE];
-// O que a barra de abas e a tela de escolha precisam saber de cada serviço.
-const SERVICE_INFO = SERVICES.map(({ id, name, mark, color }) => ({ id, name, mark, color }));
+// Domínios que abrem dentro do app (login, OAuth). O resto vai para o navegador padrão.
+const INTERNAL_HOSTS = [
+  /(^|\.)claude\.ai$/,
+  /(^|\.)claude\.com$/,
+  /(^|\.)anthropic\.com$/,
+  /^accounts\.google\.com$/,
+  /^appleid\.apple\.com$/,
+];
 
 // User-Agent de Chrome "puro" (sem "Electron"), para o login não estranhar o navegador.
 const UA_PLATFORM = {
@@ -40,10 +44,10 @@ app.userAgentFallback =
   `Chrome/${process.versions.chrome} Safari/537.36`;
 
 let win;
-let state = { accounts: [], activeId: null };
-let picking = false; // tela de "Nova aba" (escolha do serviço) visível
-let pickerView;
+// pendingWipes: contas removidas cujos dados ainda estão sendo apagados.
+let state = { accounts: [], activeId: null, pendingWipes: [] };
 const views = new Map(); // accountId -> WebContentsView (criada na primeira ativação)
+const loading = new Set(); // abas carregando agora (só em memória)
 const configuredSessions = new WeakSet();
 
 // ---------- persistência ----------
@@ -56,7 +60,14 @@ function loadState() {
   } catch {
     state = { accounts: [], activeId: null };
   }
-  for (const account of state.accounts) account.service ??= DEFAULT_SERVICE;
+  state.pendingWipes ??= [];
+  // A versão 1.1.0 criava abas de outros serviços (Gmail, Outlook…), que não existem
+  // mais: elas saem, e os dados delas são apagados.
+  for (const account of state.accounts.filter((a) => a.service && a.service !== 'claude')) {
+    state.pendingWipes.push(account.id);
+  }
+  state.accounts = state.accounts.filter((a) => !a.service || a.service === 'claude');
+  for (const account of state.accounts) delete account.service;
 }
 
 function saveState() {
@@ -67,18 +78,13 @@ function saveState() {
 
 const partitionFor = (id) => `persist:account-${id}`;
 
-function hostMatches(url, patterns) {
+function isInternal(url) {
   try {
-    const { hostname } = new URL(url);
-    return patterns.some((re) => re.test(hostname));
+    return INTERNAL_HOSTS.some((re) => re.test(new URL(url).hostname));
   } catch {
     return false;
   }
 }
-
-const isAuth = (url) => hostMatches(url, AUTH_HOSTS);
-const isInternal = (url, service) => isAuth(url) || hostMatches(url, service.hosts);
-const findAccount = (id) => state.accounts.find((a) => a.id === id);
 
 function openExternal(url) {
   if (/^https?:\/\//.test(url)) shell.openExternal(url);
@@ -92,7 +98,7 @@ function setupSession(ses) {
 }
 
 function publicState() {
-  return { ...state, picking, services: SERVICE_INFO };
+  return { accounts: state.accounts, activeId: state.activeId, loading: [...loading] };
 }
 
 function broadcast() {
@@ -100,58 +106,48 @@ function broadcast() {
 }
 
 function activeView() {
-  return picking ? undefined : views.get(state.activeId);
-}
-
-function activeAccount() {
-  return picking ? undefined : findAccount(state.activeId);
+  return views.get(state.activeId);
 }
 
 // ---------- views ----------
 
-// Janelas abertas pelo site (window.open / target=_blank):
-// - login (Google, Microsoft, Apple): popup pequeno;
-// - páginas do próprio serviço (e-mail em nova janela, documento do Drive…): janela grande;
-// - o resto vai para o navegador padrão.
-// Todas usam a partição da conta, e as janelas filhas seguem a mesma regra.
-function handleWindowOpen(wc, account) {
-  const service = serviceOf(account);
-  const partition = partitionFor(account.id);
-  wc.setWindowOpenHandler(({ url }) => {
-    if (url !== 'about:blank' && !isInternal(url, service)) {
-      openExternal(url);
-      return { action: 'deny' };
-    }
-    const size = isAuth(url) ? { width: 520, height: 720 } : { width: 1200, height: 850 };
-    return {
-      action: 'allow',
-      overrideBrowserWindowOptions: {
-        ...size,
-        icon: ICON,
-        webPreferences: { partition, sandbox: true, contextIsolation: true },
-      },
-    };
-  });
-  wc.on('did-create-window', (child) => handleWindowOpen(child.webContents, account));
-}
-
 function ensureView(account) {
   if (views.has(account.id)) return views.get(account.id);
+  const partition = partitionFor(account.id);
   const view = new WebContentsView({
-    webPreferences: { partition: partitionFor(account.id), sandbox: true, contextIsolation: true },
+    webPreferences: { partition, sandbox: true, contextIsolation: true },
   });
   const wc = view.webContents;
   setupSession(wc.session);
-  handleWindowOpen(wc, account);
+
+  wc.setWindowOpenHandler(({ url }) => {
+    if (isInternal(url)) {
+      // Popups de login herdam a mesma partição (mesma conta).
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: { width: 520, height: 720, webPreferences: { partition } },
+      };
+    }
+    openExternal(url);
+    return { action: 'deny' };
+  });
 
   wc.on('page-title-updated', (_e, title) => {
     account.title = title;
     broadcast();
   });
+  wc.on('did-start-loading', () => {
+    loading.add(account.id);
+    broadcast();
+  });
+  wc.on('did-stop-loading', () => {
+    loading.delete(account.id);
+    broadcast();
+  });
 
   win.contentView.addChildView(view);
   views.set(account.id, view);
-  wc.loadURL(serviceOf(account).url);
+  wc.loadURL(START_URL);
   return view;
 }
 
@@ -161,67 +157,42 @@ function destroyView(id) {
   win.contentView.removeChildView(view);
   view.webContents.close();
   views.delete(id);
+  loading.delete(id);
 }
 
 function layout() {
   if (!win) return;
   const { width, height } = win.getContentBounds();
-  const bounds = { x: 0, y: TAB_BAR_HEIGHT, width, height: Math.max(0, height - TAB_BAR_HEIGHT) };
-  pickerView.setBounds(bounds);
-  pickerView.setVisible(picking);
   for (const [id, view] of views) {
-    view.setBounds(bounds);
-    view.setVisible(!picking && id === state.activeId);
+    view.setBounds({ x: 0, y: TAB_BAR_HEIGHT, width, height: Math.max(0, height - TAB_BAR_HEIGHT) });
+    view.setVisible(id === state.activeId);
   }
-  (picking ? pickerView : activeView())?.webContents.focus();
+  activeView()?.webContents.focus();
 }
 
 // ---------- ações ----------
 
-function startPicking() {
-  if (!win) return;
-  picking = true;
-  layout();
-  broadcast();
-}
-
-function cancelPicking() {
-  if (!picking || state.accounts.length === 0) return; // sem contas, a tela de escolha fica
-  picking = false;
-  layout();
-  broadcast();
-}
-
-// Nome padrão: o do serviço ("Gmail"), numerado a partir da segunda ("Gmail 2").
-function defaultName(service) {
-  const names = new Set(state.accounts.map((a) => a.name));
-  if (!names.has(service.name)) return service.name;
-  let n = 2;
-  while (names.has(`${service.name} ${n}`)) n++;
-  return `${service.name} ${n}`;
-}
-
-function addAccount(serviceId) {
-  const service = serviceById[serviceId];
-  if (!service) return;
-  const account = { id: crypto.randomUUID(), service: service.id, name: defaultName(service) };
+function addAccount(name) {
+  const account = {
+    id: crypto.randomUUID(),
+    name: name?.trim() || `Conta ${state.accounts.length + 1}`,
+  };
   state.accounts.push(account);
   activate(account.id);
 }
 
 function activate(id) {
-  const account = findAccount(id);
-  if (!account || (id === state.activeId && !picking)) return;
-  picking = false;
-  state.activeId = id;
+  const account = state.accounts.find((a) => a.id === id);
+  if (!account || id === state.activeId) return;
   ensureView(account);
+  state.activeId = id;
   saveState();
   layout();
   broadcast();
 }
 
 function rename(id, name) {
-  const account = findAccount(id);
+  const account = state.accounts.find((a) => a.id === id);
   if (!account || !name?.trim()) return;
   account.name = name.trim();
   saveState();
@@ -239,34 +210,48 @@ async function removeAccount(id) {
     message: `Remover a conta "${account.name}"?`,
     detail: 'O login e todos os dados desta conta serão apagados deste app, e a aba será fechada.',
   });
-  if (response !== 0) return;
-
-  // A aba pode nunca ter sido aberta nesta execução, então a sessão vem da partição.
-  const ses = session.fromPartition(partitionFor(id));
-  destroyView(id);
-  await ses.clearStorageData();
-  await ses.clearCache();
-
   const index = state.accounts.indexOf(account);
+  if (response !== 0 || index === -1) return;
+
+  // A aba sai na hora; os dados são apagados em segundo plano (veja wipe).
+  destroyView(id);
   state.accounts.splice(index, 1);
+  state.pendingWipes.push(id);
   if (state.accounts.length === 0) {
     state.activeId = null;
+    addAccount(); // salva o estado
+  } else {
+    if (state.activeId === id) {
+      const next = state.accounts[Math.min(index, state.accounts.length - 1)];
+      state.activeId = next.id;
+      ensureView(next);
+    }
     saveState();
-    startPicking();
-    return;
+    layout();
+    broadcast();
   }
-  if (state.activeId === id) {
-    const next = state.accounts[Math.min(index, state.accounts.length - 1)];
-    state.activeId = next.id;
-    ensureView(next);
+  wipe(id);
+}
+
+// Apaga login e dados de uma conta removida, sem travar a interface. Se o app
+// fechar antes de terminar, o id continua em pendingWipes e a limpeza é retomada
+// na próxima abertura.
+async function wipe(id) {
+  // A aba pode nunca ter sido aberta nesta execução, então a sessão vem da partição.
+  const ses = session.fromPartition(partitionFor(id));
+  try {
+    await ses.clearStorageData();
+    await ses.clearCache();
+  } catch (err) {
+    console.error(`Falha ao apagar os dados da conta ${id}:`, err);
+    return; // fica pendente para a próxima abertura
   }
+  state.pendingWipes = state.pendingWipes.filter((x) => x !== id);
   saveState();
-  layout();
-  broadcast();
 }
 
 function showTabMenu(id) {
-  const account = findAccount(id);
+  const account = state.accounts.find((a) => a.id === id);
   if (!account) return;
   Menu.buildFromTemplate([
     { label: 'Renomear', click: () => { win.webContents.focus(); win.webContents.send('ui:rename', id); } },
@@ -286,17 +271,11 @@ function cycle(step) {
 // ---------- IPC (barra de abas) ----------
 
 ipcMain.handle('tabs:get', () => publicState());
-ipcMain.on('tabs:new', () => startPicking());
+ipcMain.on('tabs:add', (_e, name) => addAccount(name));
 ipcMain.on('tabs:activate', (_e, id) => activate(id));
 ipcMain.on('tabs:rename', (_e, id, name) => rename(id, name));
 ipcMain.on('tabs:reload', (_e, id) => views.get(id)?.webContents.reload());
 ipcMain.on('tabs:context', (_e, id) => showTabMenu(id));
-
-// ---------- IPC (tela de escolha do serviço) ----------
-
-ipcMain.handle('picker:services', () => SERVICE_INFO);
-ipcMain.on('picker:pick', (_e, serviceId) => addAccount(serviceId));
-ipcMain.on('picker:cancel', () => cancelPicking());
 
 // ---------- menu / atalhos ----------
 
@@ -313,7 +292,7 @@ function buildMenu() {
     {
       label: 'Contas',
       submenu: [
-        { label: 'Nova aba', accelerator: 'CmdOrCtrl+T', click: startPicking },
+        { label: 'Nova conta', accelerator: 'CmdOrCtrl+T', click: () => { win.webContents.focus(); win.webContents.send('ui:new-tab'); } },
         { label: 'Próxima aba', accelerator: 'Ctrl+Tab', click: () => cycle(1) },
         { label: 'Aba anterior', accelerator: 'Ctrl+Shift+Tab', click: () => cycle(-1) },
         { type: 'separator' },
@@ -327,7 +306,7 @@ function buildMenu() {
         { label: 'Recarregar', accelerator: 'CmdOrCtrl+R', click: () => activeView()?.webContents.reload() },
         { label: 'Voltar', accelerator: 'CmdOrCtrl+[', click: () => activeView()?.webContents.navigationHistory.goBack() },
         { label: 'Avançar', accelerator: 'CmdOrCtrl+]', click: () => activeView()?.webContents.navigationHistory.goForward() },
-        { label: 'Página inicial', accelerator: 'CmdOrCtrl+Shift+H', click: goHome },
+        { label: 'Página inicial', accelerator: 'CmdOrCtrl+Shift+H', click: () => activeView()?.webContents.loadURL(START_URL) },
         { type: 'separator' },
         { label: 'Zoom +', accelerator: 'CmdOrCtrl+=', click: () => zoom(0.5) },
         { label: 'Zoom −', accelerator: 'CmdOrCtrl+-', click: () => zoom(-0.5) },
@@ -340,11 +319,6 @@ function buildMenu() {
     { role: 'windowMenu' },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
-}
-
-function goHome() {
-  const account = activeAccount();
-  if (account) views.get(account.id)?.webContents.loadURL(serviceOf(account).url);
 }
 
 function zoom(delta) {
@@ -374,28 +348,21 @@ function createWindow() {
   win.on('resize', layout);
   win.on('closed', () => {
     win = null;
-    pickerView = null;
     views.clear();
   });
 
-  pickerView = new WebContentsView({
-    webPreferences: {
-      preload: path.join(__dirname, 'picker-preload.js'),
-      contextIsolation: true,
-      sandbox: true,
-    },
-  });
-  pickerView.webContents.loadFile(path.join(__dirname, 'picker.html'));
-  win.contentView.addChildView(pickerView);
-
   // Só a aba ativa carrega ao abrir o app; as outras, na primeira vez que forem ativadas.
   loadState();
-  picking = state.accounts.length === 0;
-  if (!picking) {
-    if (!findAccount(state.activeId)) state.activeId = state.accounts[0].id;
-    ensureView(findAccount(state.activeId));
+  for (const id of state.pendingWipes) wipe(id);
+  if (state.accounts.length === 0) {
+    addAccount('Conta 1');
+  } else {
+    const active = state.accounts.find((a) => a.id === state.activeId) ?? state.accounts[0];
+    state.activeId = active.id;
+    ensureView(active);
+    saveState();
+    layout();
   }
-  layout();
   win.webContents.on('did-finish-load', broadcast);
 }
 
