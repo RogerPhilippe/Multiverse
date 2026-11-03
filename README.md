@@ -2,7 +2,13 @@
 
 > **Cada conta no seu universo.**
 
-App desktop (Electron) para usar várias contas de assistentes de IA ao mesmo tempo, uma por aba. Hoje suporta a [claude.ai](https://claude.ai); ChatGPT e Gemini estão no [ROADMAP.md](ROADMAP.md).
+App desktop (Electron) para usar várias contas ao mesmo tempo, uma por aba, de vários serviços:
+
+| IA | E-mail | Arquivos |
+| --- | --- | --- |
+| Claude, Gemini, ChatGPT | Gmail, Outlook | Google Drive, OneDrive |
+
+Dá para ter várias contas de cada serviço, todas isoladas.
 
 Projeto pessoal e privado. Veja os planos futuros em [ROADMAP.md](ROADMAP.md).
 
@@ -58,28 +64,32 @@ O app não tem certificado da Apple nem da Microsoft:
 
 | Ação | Como |
 | --- | --- |
-| Nova conta | `+` na barra ou ⌘T |
+| Nova aba (escolher o serviço) | `+` na barra ou ⌘T; Esc volta |
 | Renomear aba | Duplo clique na aba |
 | Remover conta (apaga login e dados, fecha a aba) | Clique direito na aba → *Remover conta…* |
 | Trocar de aba | ⌘1…⌘9, Ctrl+Tab / Ctrl+Shift+Tab |
 | Recarregar aba | ⌘R ou clique do meio na aba |
 | Voltar / avançar | ⌘[ / ⌘] |
-| Voltar à página inicial | ⌘⇧H |
+| Voltar à página inicial do serviço | ⌘⇧H |
 | Zoom | ⌘+ / ⌘− / ⌘0 |
 | DevTools da aba | ⌥⌘I |
 
-- Os links externos abertos nas conversas vão para o navegador padrão.
-- Os popups de login (Google/Apple) abrem dentro do app, na sessão da aba que os abriu.
-- **Login com Google** pode ser bloqueado em apps Electron. O app se identifica como Chrome comum para reduzir isso. Se o Google bloquear mesmo assim, entre com e-mail (link ou código).
+- A aba nova recebe o nome do serviço ("Gmail", "Gmail 2"…); renomeie com duplo clique.
+- Só a aba ativa carrega ao abrir o app; as outras carregam na primeira vez que são abertas.
+- Links para fora do serviço vão para o navegador padrão. Os popups de login (Google, Microsoft, Apple) abrem num popup pequeno; páginas do próprio serviço abertas em nova janela (e-mail, documento) abrem numa janela grande. Todas usam a sessão da aba que as abriu.
+- Cada aba é um navegador separado: a mesma conta Google no Gmail, no Drive e no Gemini pede um login em cada aba.
+- **Login com Google** pode ser bloqueado em apps Electron ("Este navegador ou app pode não ser seguro"). O app se identifica como Chrome comum para reduzir isso. No Claude e no ChatGPT, dá para entrar com e-mail; em Gemini, Gmail e Drive não há alternativa (veja o [ROADMAP.md](ROADMAP.md)).
 
 ## Estrutura
 
 ```
 src/
-  main.js      processo principal: janela, abas (WebContentsView), sessões, menu/atalhos
-  preload.js   ponte segura (contextBridge) entre a barra de abas e o main
-  tabbar.html  barra de abas
-  tabbar.js    lógica da barra (renderizar, adicionar, renomear, remover)
+  main.js           processo principal: janela, abas (WebContentsView), sessões, menu/atalhos
+  services.js       catálogo de serviços (URL inicial, domínios internos, cor)
+  preload.js        ponte segura (contextBridge) entre a barra de abas e o main
+  tabbar.html/.js   barra de abas (renderizar, renomear, menu de contexto)
+  picker.html/.js   tela "Nova aba" com os botões dos serviços
+  picker-preload.js ponte da tela "Nova aba" (escolher / cancelar)
 build/
   icon.svg     fonte do ícone (três anéis = três universos)
   icon.png     1024px, gerado
@@ -92,7 +102,7 @@ scripts/
 
 ## Dados
 
-- Lista de contas: `~/Library/Application Support/Multiverse/accounts.json`
+- Lista de contas: `~/Library/Application Support/Multiverse/accounts.json` (cada conta tem `service`; contas antigas sem o campo são tratadas como `claude`)
 - Sessões (cookies etc.): `~/Library/Application Support/Multiverse/Partitions/`
 
 O caminho vem do `productName` do `package.json`. Em desenvolvimento (`npm start`), o app usa `~/Library/Application Support/Multiverse Dev/`, para nunca disputar dados com o app instalado. Só uma instância roda por pasta de dados: abrir de novo traz a janela existente para frente.

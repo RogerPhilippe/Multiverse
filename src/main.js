@@ -1,7 +1,8 @@
-const { app, BrowserWindow, WebContentsView, ipcMain, shell, Menu, dialog } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, shell, Menu, dialog, session } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const crypto = require('node:crypto');
+const { SERVICES, AUTH_HOSTS, DEFAULT_SERVICE } = require('./services');
 
 // Em desenvolvimento (npm start) usa uma pasta própria, para nunca disputar
 // os dados (logins) com o app instalado.
@@ -21,18 +22,13 @@ app.on('second-instance', () => {
   win.focus();
 });
 
-const START_URL = 'https://claude.ai/';
 const TAB_BAR_HEIGHT = 40;
 const ICON = path.join(__dirname, '..', 'build', 'icon.png');
 
-// Domínios que abrem dentro do app (login, OAuth). O resto vai para o navegador padrão.
-const INTERNAL_HOSTS = [
-  /(^|\.)claude\.ai$/,
-  /(^|\.)claude\.com$/,
-  /(^|\.)anthropic\.com$/,
-  /^accounts\.google\.com$/,
-  /^appleid\.apple\.com$/,
-];
+const serviceById = Object.fromEntries(SERVICES.map((s) => [s.id, s]));
+const serviceOf = (account) => serviceById[account.service] ?? serviceById[DEFAULT_SERVICE];
+// O que a barra de abas e a tela de escolha precisam saber de cada serviço.
+const SERVICE_INFO = SERVICES.map(({ id, name, mark, color }) => ({ id, name, mark, color }));
 
 // User-Agent de Chrome "puro" (sem "Electron"), para o login não estranhar o navegador.
 const UA_PLATFORM = {
@@ -45,7 +41,9 @@ app.userAgentFallback =
 
 let win;
 let state = { accounts: [], activeId: null };
-const views = new Map(); // accountId -> WebContentsView
+let picking = false; // tela de "Nova aba" (escolha do serviço) visível
+let pickerView;
+const views = new Map(); // accountId -> WebContentsView (criada na primeira ativação)
 const configuredSessions = new WeakSet();
 
 // ---------- persistência ----------
@@ -58,6 +56,7 @@ function loadState() {
   } catch {
     state = { accounts: [], activeId: null };
   }
+  for (const account of state.accounts) account.service ??= DEFAULT_SERVICE;
 }
 
 function saveState() {
@@ -68,13 +67,18 @@ function saveState() {
 
 const partitionFor = (id) => `persist:account-${id}`;
 
-function isInternal(url) {
+function hostMatches(url, patterns) {
   try {
-    return INTERNAL_HOSTS.some((re) => re.test(new URL(url).hostname));
+    const { hostname } = new URL(url);
+    return patterns.some((re) => re.test(hostname));
   } catch {
     return false;
   }
 }
+
+const isAuth = (url) => hostMatches(url, AUTH_HOSTS);
+const isInternal = (url, service) => isAuth(url) || hostMatches(url, service.hosts);
+const findAccount = (id) => state.accounts.find((a) => a.id === id);
 
 function openExternal(url) {
   if (/^https?:\/\//.test(url)) shell.openExternal(url);
@@ -87,35 +91,58 @@ function setupSession(ses) {
   ses.setPermissionRequestHandler((_wc, permission, callback) => callback(allowed.has(permission)));
 }
 
+function publicState() {
+  return { ...state, picking, services: SERVICE_INFO };
+}
+
 function broadcast() {
-  win?.webContents.send('tabs:update', state);
+  win?.webContents.send('tabs:update', publicState());
 }
 
 function activeView() {
-  return views.get(state.activeId);
+  return picking ? undefined : views.get(state.activeId);
+}
+
+function activeAccount() {
+  return picking ? undefined : findAccount(state.activeId);
 }
 
 // ---------- views ----------
 
-function createView(account) {
+// Janelas abertas pelo site (window.open / target=_blank):
+// - login (Google, Microsoft, Apple): popup pequeno;
+// - páginas do próprio serviço (e-mail em nova janela, documento do Drive…): janela grande;
+// - o resto vai para o navegador padrão.
+// Todas usam a partição da conta, e as janelas filhas seguem a mesma regra.
+function handleWindowOpen(wc, account) {
+  const service = serviceOf(account);
   const partition = partitionFor(account.id);
+  wc.setWindowOpenHandler(({ url }) => {
+    if (url !== 'about:blank' && !isInternal(url, service)) {
+      openExternal(url);
+      return { action: 'deny' };
+    }
+    const size = isAuth(url) ? { width: 520, height: 720 } : { width: 1200, height: 850 };
+    return {
+      action: 'allow',
+      overrideBrowserWindowOptions: {
+        ...size,
+        icon: ICON,
+        webPreferences: { partition, sandbox: true, contextIsolation: true },
+      },
+    };
+  });
+  wc.on('did-create-window', (child) => handleWindowOpen(child.webContents, account));
+}
+
+function ensureView(account) {
+  if (views.has(account.id)) return views.get(account.id);
   const view = new WebContentsView({
-    webPreferences: { partition, sandbox: true, contextIsolation: true },
+    webPreferences: { partition: partitionFor(account.id), sandbox: true, contextIsolation: true },
   });
   const wc = view.webContents;
   setupSession(wc.session);
-
-  wc.setWindowOpenHandler(({ url }) => {
-    if (isInternal(url)) {
-      // Popups de login herdam a mesma partição (mesma conta).
-      return {
-        action: 'allow',
-        overrideBrowserWindowOptions: { width: 520, height: 720, webPreferences: { partition } },
-      };
-    }
-    openExternal(url);
-    return { action: 'deny' };
-  });
+  handleWindowOpen(wc, account);
 
   wc.on('page-title-updated', (_e, title) => {
     account.title = title;
@@ -124,7 +151,7 @@ function createView(account) {
 
   win.contentView.addChildView(view);
   views.set(account.id, view);
-  wc.loadURL(START_URL);
+  wc.loadURL(serviceOf(account).url);
   return view;
 }
 
@@ -139,35 +166,62 @@ function destroyView(id) {
 function layout() {
   if (!win) return;
   const { width, height } = win.getContentBounds();
+  const bounds = { x: 0, y: TAB_BAR_HEIGHT, width, height: Math.max(0, height - TAB_BAR_HEIGHT) };
+  pickerView.setBounds(bounds);
+  pickerView.setVisible(picking);
   for (const [id, view] of views) {
-    view.setBounds({ x: 0, y: TAB_BAR_HEIGHT, width, height: Math.max(0, height - TAB_BAR_HEIGHT) });
-    view.setVisible(id === state.activeId);
+    view.setBounds(bounds);
+    view.setVisible(!picking && id === state.activeId);
   }
-  activeView()?.webContents.focus();
+  (picking ? pickerView : activeView())?.webContents.focus();
 }
 
 // ---------- ações ----------
 
-function addAccount(name) {
-  const account = {
-    id: crypto.randomUUID(),
-    name: name?.trim() || `Conta ${state.accounts.length + 1}`,
-  };
+function startPicking() {
+  if (!win) return;
+  picking = true;
+  layout();
+  broadcast();
+}
+
+function cancelPicking() {
+  if (!picking || state.accounts.length === 0) return; // sem contas, a tela de escolha fica
+  picking = false;
+  layout();
+  broadcast();
+}
+
+// Nome padrão: o do serviço ("Gmail"), numerado a partir da segunda ("Gmail 2").
+function defaultName(service) {
+  const names = new Set(state.accounts.map((a) => a.name));
+  if (!names.has(service.name)) return service.name;
+  let n = 2;
+  while (names.has(`${service.name} ${n}`)) n++;
+  return `${service.name} ${n}`;
+}
+
+function addAccount(serviceId) {
+  const service = serviceById[serviceId];
+  if (!service) return;
+  const account = { id: crypto.randomUUID(), service: service.id, name: defaultName(service) };
   state.accounts.push(account);
-  createView(account);
   activate(account.id);
 }
 
 function activate(id) {
-  if (!views.has(id) || id === state.activeId) return;
+  const account = findAccount(id);
+  if (!account || (id === state.activeId && !picking)) return;
+  picking = false;
   state.activeId = id;
+  ensureView(account);
   saveState();
   layout();
   broadcast();
 }
 
 function rename(id, name) {
-  const account = state.accounts.find((a) => a.id === id);
+  const account = findAccount(id);
   if (!account || !name?.trim()) return;
   account.name = name.trim();
   saveState();
@@ -187,20 +241,24 @@ async function removeAccount(id) {
   });
   if (response !== 0) return;
 
-  const ses = views.get(id)?.webContents.session;
+  // A aba pode nunca ter sido aberta nesta execução, então a sessão vem da partição.
+  const ses = session.fromPartition(partitionFor(id));
   destroyView(id);
-  await ses?.clearStorageData();
-  await ses?.clearCache();
+  await ses.clearStorageData();
+  await ses.clearCache();
 
   const index = state.accounts.indexOf(account);
   state.accounts.splice(index, 1);
   if (state.accounts.length === 0) {
     state.activeId = null;
-    addAccount();
+    saveState();
+    startPicking();
     return;
   }
   if (state.activeId === id) {
-    state.activeId = state.accounts[Math.min(index, state.accounts.length - 1)].id;
+    const next = state.accounts[Math.min(index, state.accounts.length - 1)];
+    state.activeId = next.id;
+    ensureView(next);
   }
   saveState();
   layout();
@@ -208,7 +266,7 @@ async function removeAccount(id) {
 }
 
 function showTabMenu(id) {
-  const account = state.accounts.find((a) => a.id === id);
+  const account = findAccount(id);
   if (!account) return;
   Menu.buildFromTemplate([
     { label: 'Renomear', click: () => { win.webContents.focus(); win.webContents.send('ui:rename', id); } },
@@ -227,12 +285,18 @@ function cycle(step) {
 
 // ---------- IPC (barra de abas) ----------
 
-ipcMain.handle('tabs:get', () => state);
-ipcMain.on('tabs:add', (_e, name) => addAccount(name));
+ipcMain.handle('tabs:get', () => publicState());
+ipcMain.on('tabs:new', () => startPicking());
 ipcMain.on('tabs:activate', (_e, id) => activate(id));
 ipcMain.on('tabs:rename', (_e, id, name) => rename(id, name));
 ipcMain.on('tabs:reload', (_e, id) => views.get(id)?.webContents.reload());
 ipcMain.on('tabs:context', (_e, id) => showTabMenu(id));
+
+// ---------- IPC (tela de escolha do serviço) ----------
+
+ipcMain.handle('picker:services', () => SERVICE_INFO);
+ipcMain.on('picker:pick', (_e, serviceId) => addAccount(serviceId));
+ipcMain.on('picker:cancel', () => cancelPicking());
 
 // ---------- menu / atalhos ----------
 
@@ -249,7 +313,7 @@ function buildMenu() {
     {
       label: 'Contas',
       submenu: [
-        { label: 'Nova conta', accelerator: 'CmdOrCtrl+T', click: () => { win.webContents.focus(); win.webContents.send('ui:new-tab'); } },
+        { label: 'Nova aba', accelerator: 'CmdOrCtrl+T', click: startPicking },
         { label: 'Próxima aba', accelerator: 'Ctrl+Tab', click: () => cycle(1) },
         { label: 'Aba anterior', accelerator: 'Ctrl+Shift+Tab', click: () => cycle(-1) },
         { type: 'separator' },
@@ -263,7 +327,7 @@ function buildMenu() {
         { label: 'Recarregar', accelerator: 'CmdOrCtrl+R', click: () => activeView()?.webContents.reload() },
         { label: 'Voltar', accelerator: 'CmdOrCtrl+[', click: () => activeView()?.webContents.navigationHistory.goBack() },
         { label: 'Avançar', accelerator: 'CmdOrCtrl+]', click: () => activeView()?.webContents.navigationHistory.goForward() },
-        { label: 'Página inicial', accelerator: 'CmdOrCtrl+Shift+H', click: () => activeView()?.webContents.loadURL(START_URL) },
+        { label: 'Página inicial', accelerator: 'CmdOrCtrl+Shift+H', click: goHome },
         { type: 'separator' },
         { label: 'Zoom +', accelerator: 'CmdOrCtrl+=', click: () => zoom(0.5) },
         { label: 'Zoom −', accelerator: 'CmdOrCtrl+-', click: () => zoom(-0.5) },
@@ -276,6 +340,11 @@ function buildMenu() {
     { role: 'windowMenu' },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+function goHome() {
+  const account = activeAccount();
+  if (account) views.get(account.id)?.webContents.loadURL(serviceOf(account).url);
 }
 
 function zoom(delta) {
@@ -305,17 +374,28 @@ function createWindow() {
   win.on('resize', layout);
   win.on('closed', () => {
     win = null;
+    pickerView = null;
     views.clear();
   });
 
+  pickerView = new WebContentsView({
+    webPreferences: {
+      preload: path.join(__dirname, 'picker-preload.js'),
+      contextIsolation: true,
+      sandbox: true,
+    },
+  });
+  pickerView.webContents.loadFile(path.join(__dirname, 'picker.html'));
+  win.contentView.addChildView(pickerView);
+
+  // Só a aba ativa carrega ao abrir o app; as outras, na primeira vez que forem ativadas.
   loadState();
-  if (state.accounts.length === 0) {
-    addAccount('Conta 1');
-  } else {
-    for (const account of state.accounts) createView(account);
-    if (!views.has(state.activeId)) state.activeId = state.accounts[0].id;
-    layout();
+  picking = state.accounts.length === 0;
+  if (!picking) {
+    if (!findAccount(state.activeId)) state.activeId = state.accounts[0].id;
+    ensureView(findAccount(state.activeId));
   }
+  layout();
   win.webContents.on('did-finish-load', broadcast);
 }
 

@@ -1,50 +1,28 @@
 # Roadmap
 
-## Suporte a outros serviços (ChatGPT, Gemini…)
+## Suporte a outros serviços
 
-**Objetivo:** ao criar uma aba, escolher o serviço (Claude, ChatGPT, Gemini…), mantendo várias contas de cada um, todas isoladas.
+- [x] Catálogo em `src/services.js`: Claude, Gemini, ChatGPT, Gmail, Outlook, Google Drive, OneDrive.
+- [x] Campo `service` por conta (contas antigas viram `claude`).
+- [x] Tela "Nova aba" com um botão por serviço; cor do serviço na aba.
+- [x] Popups: login pequeno, páginas do serviço em janela grande, o resto no navegador padrão.
+- [x] Carregamento sob demanda (só a aba ativa carrega ao abrir).
+- [ ] Ícones de verdade (hoje: letra sobre a cor do serviço).
+- [ ] Suspender abas inativas há muito tempo.
+- [ ] Opção de abas compartilharem a sessão (ex.: Gmail + Drive + Gemini com um só login Google).
 
-### Por que é viável
+### Login com Google
 
-O isolamento já é por **conta**, não por serviço: cada aba tem a própria partição. Basta parametrizar o que hoje está fixo para a claude.ai:
+Já visto no Claude: o popup "Continuar com Google" mostrou **"Não foi possível fazer login. Este navegador ou app pode não ser seguro"**. Afeta também Gemini, Gmail e Drive, que não têm outro login. Causa provável: o User-Agent diz Chrome, mas os Client Hints (`Sec-CH-UA`, `navigator.userAgentData`) dizem Chromium/Electron. Próximos passos, em ordem:
 
-| Hoje (fixo em `src/main.js`) | Passa a ser |
-| --- | --- |
-| `START_URL = 'https://claude.ai/'` | `service.url` |
-| `INTERNAL_HOSTS` (domínios que abrem dentro do app) | `service.hosts` + domínios de login comuns |
-| Bolinha com cor por posição | Ícone/cor do serviço |
+1. Só em `accounts.google.com`: User-Agent de Firefox (que não usa Client Hints) e remover os cabeçalhos `Sec-CH-UA*` (técnica usada por Ferdium/Rambox).
+2. Abrir o login numa janela comum do app em vez de popup.
+3. Em último caso, logar no navegador do sistema e importar cookies (complexo, evitar).
 
-### Proposta
+### Outros riscos
 
-1. **Catálogo de serviços** (ex.: `src/services.js`):
-
-   ```js
-   module.exports = {
-     claude:  { name: 'Claude',  url: 'https://claude.ai/',
-                hosts: [/(^|\.)claude\.ai$/, /(^|\.)claude\.com$/, /(^|\.)anthropic\.com$/] },
-     chatgpt: { name: 'ChatGPT', url: 'https://chatgpt.com/',
-                hosts: [/(^|\.)chatgpt\.com$/, /(^|\.)openai\.com$/] },
-     gemini:  { name: 'Gemini',  url: 'https://gemini.google.com/',
-                hosts: [/^gemini\.google\.com$/] },
-   };
-   ```
-   Os domínios de login compartilhados (`accounts.google.com`, `appleid.apple.com`, `login.microsoftonline.com`) ficam numa lista comum.
-
-2. **Campo `service` em cada conta** no `accounts.json`.
-   - Migração: conta sem `service` é tratada como `claude`. Os logins existentes continuam funcionando.
-
-3. **UI**: o `+` abre um pequeno menu para escolher o serviço antes de digitar o nome. A aba mostra o ícone do serviço (favicon via evento `page-favicon-updated` ou ícone local).
-
-4. **Atalhos**: sem mudança, ⌘1…⌘9 seguem a ordem das abas.
-
-### Riscos
-
-- **Gemini depende de login Google**, o mais propenso a bloquear navegadores embutidos ("este navegador pode não ser seguro"). Mitigações, em ordem:
-  1. User-Agent de Chrome (já aplicado);
-  2. abrir o login numa janela comum do app em vez de um popup;
-  3. em último caso, logar no navegador do sistema e importar cookies (complexo, evitar).
-- **ChatGPT** usa Cloudflare, que pode pedir verificação humana em navegadores "diferentes". Normalmente passa após o desafio.
-- Cada aba é um processo Chromium. Com muitas abas, considerar **carregamento sob demanda** (criar a view só na primeira ativação) e **suspender** abas inativas.
+- **ChatGPT** usa Cloudflare, que pode pedir verificação humana. Normalmente passa após o desafio.
+- **Downloads** (anexos, arquivos do Drive/OneDrive) usam o diálogo padrão do Electron; se incomodar, tratar `will-download`.
 
 ## Identidade
 
