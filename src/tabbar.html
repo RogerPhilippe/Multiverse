@@ -23,7 +23,7 @@
       -webkit-app-region: drag;
     }
     body.darwin #bar { padding-left: 80px; } /* espaço para os botões da janela no macOS */
-    .tab, #add, input { -webkit-app-region: no-drag; }
+    .tab, #add, input, .close { -webkit-app-region: no-drag; }
     .tab {
       display: flex;
       align-items: center;
@@ -60,6 +60,20 @@
       background: #1f1e1d; color: #fff; font: inherit;
     }
     #new-input { align-self: center; margin-left: 4px; }
+    /* Aba filha: mais estreita, colada à pai, com a cor da conta embaixo. */
+    .tab.child {
+      min-width: 70px; max-width: 180px; height: 28px; padding: 0 4px 0 10px;
+      font-size: 12px; box-shadow: inset 0 -2px 0 var(--parent-color);
+    }
+    .tab.child .dot { width: 6px; height: 6px; }
+    .tab.child .dot.loading { width: 8px; height: 8px; }
+    .tab .close {
+      flex: none; width: 18px; height: 18px; padding: 0;
+      border: 0; border-radius: 4px; background: none;
+      color: inherit; font-size: 14px; line-height: 18px; cursor: pointer; opacity: .6;
+    }
+    .tab .close:hover { background: #4a4743; opacity: 1; }
+    .child-input { align-self: center; width: 240px; }
   </style>
 </head>
 <body>

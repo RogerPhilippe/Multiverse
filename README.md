@@ -61,6 +61,8 @@ O app não tem certificado da Apple nem da Microsoft:
 | Nova conta | `+` na barra ou ⌘T |
 | Renomear aba | Duplo clique na aba |
 | Remover conta (fecha a aba na hora; login e dados são apagados em segundo plano) | Clique direito na aba → *Remover conta…* |
+| Aba filha (mesma sessão da conta, abre uma URL colada) | Clique direito na aba → *Nova aba filha…*, ou ⌘⇧T |
+| Fechar aba filha (a conta continua logada) | `×` na aba filha ou ⌘W |
 | Trocar de aba | ⌘1…⌘9, Ctrl+Tab / Ctrl+Shift+Tab |
 | Recarregar aba | ⌘R ou clique do meio na aba |
 | Voltar / avançar | ⌘[ / ⌘] |
@@ -69,6 +71,7 @@ O app não tem certificado da Apple nem da Microsoft:
 | DevTools da aba | ⌥⌘I |
 
 - Só a aba ativa carrega ao abrir o app; as outras carregam na primeira vez que são abertas. Enquanto a aba carrega, a bolinha vira um anel girando.
+- **Abas filhas** usam os mesmos cookies da aba pai, então abrem a URL já logadas nessa conta. Servem, por exemplo, para o login do Claude Code: copie o link que ele mostra, crie uma aba filha na conta certa, cole o link, autorize e copie o código. O campo da URL fica aberto até você colar (Enter) ou cancelar (Esc). As filhas não são salvas: somem ao fechar o app.
 - Os links externos abertos nas conversas vão para o navegador padrão.
 - Os popups de login (Google/Apple) abrem dentro do app, na sessão da aba que os abriu.
 - **Login com Google não funciona:** o Google bloqueia apps Electron ("Este navegador ou app pode não ser seguro"). Entre com e-mail: a claude.ai envia um código, sem senha.

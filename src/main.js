@@ -1,4 +1,4 @@
-const { app, BrowserWindow, WebContentsView, ipcMain, shell, Menu, dialog, session } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, shell, Menu, dialog, session, clipboard } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const crypto = require('node:crypto');
@@ -46,7 +46,10 @@ app.userAgentFallback =
 let win;
 // pendingWipes: contas removidas cujos dados ainda estão sendo apagados.
 let state = { accounts: [], activeId: null, pendingWipes: [] };
-const views = new Map(); // accountId -> WebContentsView (criada na primeira ativação)
+// Abas filhas: compartilham a sessão (partição) da aba pai, para abrir uma URL já
+// autenticada (ex.: link de login do Claude Code). Só existem em memória.
+let children = []; // { id, parentId, url, title }
+const views = new Map(); // id da aba -> WebContentsView (criada na primeira ativação)
 const loading = new Set(); // abas carregando agora (só em memória)
 const configuredSessions = new WeakSet();
 
@@ -71,12 +74,36 @@ function loadState() {
 }
 
 function saveState() {
-  fs.writeFileSync(stateFile(), JSON.stringify(state, null, 2));
+  // Filhas não são salvas: se uma estiver ativa, ao reabrir volta a aba pai.
+  const activeId = findTab(state.activeId)?.parentId ?? state.activeId;
+  fs.writeFileSync(stateFile(), JSON.stringify({ ...state, activeId }, null, 2));
 }
 
 // ---------- helpers ----------
 
 const partitionFor = (id) => `persist:account-${id}`;
+
+const findTab = (id) => state.accounts.find((a) => a.id === id) ?? children.find((c) => c.id === id);
+
+// Ordem de exibição: cada conta seguida das suas filhas.
+function orderedTabs() {
+  return state.accounts.flatMap((a) => [a, ...children.filter((c) => c.parentId === a.id)]);
+}
+
+// Aceita "exemplo.com/x" e completa com https://. Só http(s).
+// Remove todo espaço/quebra de linha: links copiados do terminal vêm quebrados em
+// várias linhas (ex.: "redirect_uri\n=..." viraria o parâmetro "redirect_uri ").
+// Uma URL válida nunca tem espaço literal (seria %20), então é seguro.
+function normalizeUrl(input) {
+  const text = input?.replace(/\s+/g, '');
+  if (!text) return null;
+  try {
+    const url = new URL(/^[a-z][a-z0-9+.-]*:/i.test(text) ? text : `https://${text}`);
+    return /^https?:$/.test(url.protocol) ? url.href : null;
+  } catch {
+    return null;
+  }
+}
 
 function isInternal(url) {
   try {
@@ -98,7 +125,7 @@ function setupSession(ses) {
 }
 
 function publicState() {
-  return { accounts: state.accounts, activeId: state.activeId, loading: [...loading] };
+  return { accounts: state.accounts, children, activeId: state.activeId, loading: [...loading] };
 }
 
 function broadcast() {
@@ -111,9 +138,10 @@ function activeView() {
 
 // ---------- views ----------
 
+// tab: uma conta ou uma filha (a filha usa a partição da conta pai).
 function ensureView(account) {
   if (views.has(account.id)) return views.get(account.id);
-  const partition = partitionFor(account.id);
+  const partition = partitionFor(account.parentId ?? account.id);
   const view = new WebContentsView({
     webPreferences: { partition, sandbox: true, contextIsolation: true },
   });
@@ -147,7 +175,7 @@ function ensureView(account) {
 
   win.contentView.addChildView(view);
   views.set(account.id, view);
-  wc.loadURL(START_URL);
+  wc.loadURL(account.url ?? START_URL);
   return view;
 }
 
@@ -182,7 +210,7 @@ function addAccount(name) {
 }
 
 function activate(id) {
-  const account = state.accounts.find((a) => a.id === id);
+  const account = findTab(id);
   if (!account || id === state.activeId) return;
   ensureView(account);
   state.activeId = id;
@@ -214,6 +242,10 @@ async function removeAccount(id) {
   if (response !== 0 || index === -1) return;
 
   // A aba sai na hora; os dados são apagados em segundo plano (veja wipe).
+  // As filhas usam a mesma sessão, então fecham junto.
+  for (const child of children.filter((c) => c.parentId === id)) destroyView(child.id);
+  if (children.some((c) => c.parentId === id && c.id === state.activeId)) state.activeId = id;
+  children = children.filter((c) => c.parentId !== id);
   destroyView(id);
   state.accounts.splice(index, 1);
   state.pendingWipes.push(id);
@@ -250,10 +282,51 @@ async function wipe(id) {
   saveState();
 }
 
+function addChild(parentId, rawUrl) {
+  const parent = state.accounts.find((a) => a.id === parentId);
+  const url = normalizeUrl(rawUrl);
+  if (!parent) return;
+  if (!url) {
+    dialog.showMessageBox(win, { type: 'error', message: 'URL inválida.', detail: 'Use um endereço http:// ou https://.' });
+    return;
+  }
+  const child = { id: crypto.randomUUID(), parentId, url };
+  // Entra logo depois das outras filhas da mesma conta.
+  children.push(child);
+  activate(child.id);
+}
+
+// Fecha só a view: a sessão é da conta pai, então nada é apagado e o login continua.
+function closeChild(id) {
+  const child = children.find((c) => c.id === id);
+  if (!child) return;
+  destroyView(id);
+  children = children.filter((c) => c !== child);
+  if (state.activeId === id) {
+    state.activeId = null;
+    activate(child.parentId);
+  } else {
+    layout();
+    broadcast();
+  }
+}
+
 function showTabMenu(id) {
+  const child = children.find((c) => c.id === id);
+  if (child) {
+    Menu.buildFromTemplate([
+      { label: 'Recarregar', click: () => views.get(id)?.webContents.reload() },
+      { label: 'Copiar URL', click: () => clipboard.writeText(views.get(id)?.webContents.getURL() ?? child.url) },
+      { type: 'separator' },
+      { label: 'Fechar aba filha', click: () => closeChild(id) },
+    ]).popup({ window: win });
+    return;
+  }
   const account = state.accounts.find((a) => a.id === id);
   if (!account) return;
   Menu.buildFromTemplate([
+    { label: 'Nova aba filha…', click: () => { win.webContents.focus(); win.webContents.send('ui:add-child', id); } },
+    { type: 'separator' },
     { label: 'Renomear', click: () => { win.webContents.focus(); win.webContents.send('ui:rename', id); } },
     { label: 'Recarregar', click: () => views.get(id)?.webContents.reload() },
     { type: 'separator' },
@@ -262,10 +335,11 @@ function showTabMenu(id) {
 }
 
 function cycle(step) {
-  const n = state.accounts.length;
+  const tabs = orderedTabs();
+  const n = tabs.length;
   if (n < 2) return;
-  const i = state.accounts.findIndex((a) => a.id === state.activeId);
-  activate(state.accounts[(i + step + n) % n].id);
+  const i = tabs.findIndex((t) => t.id === state.activeId);
+  activate(tabs[(i + step + n) % n].id);
 }
 
 // ---------- IPC (barra de abas) ----------
@@ -276,6 +350,8 @@ ipcMain.on('tabs:activate', (_e, id) => activate(id));
 ipcMain.on('tabs:rename', (_e, id, name) => rename(id, name));
 ipcMain.on('tabs:reload', (_e, id) => views.get(id)?.webContents.reload());
 ipcMain.on('tabs:context', (_e, id) => showTabMenu(id));
+ipcMain.on('tabs:add-child', (_e, parentId, url) => addChild(parentId, url));
+ipcMain.on('tabs:close-child', (_e, id) => closeChild(id));
 
 // ---------- menu / atalhos ----------
 
@@ -293,6 +369,15 @@ function buildMenu() {
       label: 'Contas',
       submenu: [
         { label: 'Nova conta', accelerator: 'CmdOrCtrl+T', click: () => { win.webContents.focus(); win.webContents.send('ui:new-tab'); } },
+        {
+          label: 'Nova aba filha da conta atual…',
+          accelerator: 'CmdOrCtrl+Shift+T',
+          click: () => {
+            const parentId = findTab(state.activeId)?.parentId ?? state.activeId;
+            if (parentId) { win.webContents.focus(); win.webContents.send('ui:add-child', parentId); }
+          },
+        },
+        { label: 'Fechar aba filha', accelerator: 'CmdOrCtrl+W', click: () => closeChild(state.activeId) },
         { label: 'Próxima aba', accelerator: 'Ctrl+Tab', click: () => cycle(1) },
         { label: 'Aba anterior', accelerator: 'Ctrl+Shift+Tab', click: () => cycle(-1) },
         { type: 'separator' },
@@ -349,6 +434,7 @@ function createWindow() {
   win.on('closed', () => {
     win = null;
     views.clear();
+    children = [];
   });
 
   // Só a aba ativa carrega ao abrir o app; as outras, na primeira vez que forem ativadas.
