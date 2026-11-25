@@ -51,6 +51,10 @@ let state = { accounts: [], activeId: null, pendingWipes: [] };
 let children = []; // { id, parentId, url, title }
 const views = new Map(); // id da aba -> WebContentsView (criada na primeira ativação)
 const loading = new Set(); // abas carregando agora (só em memória)
+// PIN: contas com PIN abrem bloqueadas ao iniciar o app; depois do PIN certo,
+// ficam desbloqueadas (com as filhas) até o app ser fechado.
+const unlocked = new Set(); // ids de contas desbloqueadas
+let modalOpen = false; // diálogo de PIN aberto na barra: esconde as páginas
 const configuredSessions = new WeakSet();
 
 // ---------- persistência ----------
@@ -124,16 +128,94 @@ function setupSession(ses) {
   ses.setPermissionRequestHandler((_wc, permission, callback) => callback(allowed.has(permission)));
 }
 
+// ---------- PIN ----------
+
+const ownerId = (id) => findTab(id)?.parentId ?? id; // conta dona da aba (a própria, ou a pai)
+const isLocked = (id) => {
+  const account = state.accounts.find((a) => a.id === ownerId(id));
+  return !!account?.pin && !unlocked.has(account.id);
+};
+
+function hashPin(pin, salt) {
+  return crypto.scryptSync(pin, Buffer.from(salt, 'hex'), 32).toString('hex');
+}
+
+function checkPin(account, pin) {
+  if (!account?.pin || typeof pin !== 'string') return false;
+  const a = Buffer.from(hashPin(pin, account.pin.salt), 'hex');
+  const b = Buffer.from(account.pin.hash, 'hex');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+const MIN_PIN = 4;
+
+function setPin(id, pin) {
+  const account = state.accounts.find((a) => a.id === id);
+  if (!account) return { ok: false, error: 'Conta não encontrada.' };
+  if (account.pin) return { ok: false, error: 'Esta conta já tem PIN.' };
+  if (typeof pin !== 'string' || pin.length < MIN_PIN) return { ok: false, error: `O PIN precisa ter ao menos ${MIN_PIN} caracteres.` };
+  const salt = crypto.randomBytes(16).toString('hex');
+  account.pin = { salt, hash: hashPin(pin, salt) };
+  unlocked.add(id); // quem acabou de definir continua usando; bloqueia ao reabrir o app
+  saveState();
+  broadcast();
+  return { ok: true };
+}
+
+// Erro de PIN espera um pouco, para dificultar tentativa e erro.
+async function removePin(id, pin) {
+  const account = state.accounts.find((a) => a.id === id);
+  if (!checkPin(account, pin)) { await delay(800); return { ok: false, error: 'PIN incorreto.' }; }
+  delete account.pin;
+  unlocked.delete(id);
+  saveState();
+  showActive();
+  return { ok: true };
+}
+
+async function unlock(id, pin) {
+  const account = state.accounts.find((a) => a.id === ownerId(id));
+  if (!checkPin(account, pin)) { await delay(800); return { ok: false, error: 'PIN incorreto.' }; }
+  unlocked.add(account.id);
+  showActive();
+  return { ok: true };
+}
+
+// Depois de desbloquear/remover o PIN: carrega a aba ativa, se ainda não tinha carregado.
+function showActive() {
+  const active = findTab(state.activeId);
+  if (active && !isLocked(active.id)) ensureView(active);
+  layout();
+  broadcast();
+}
+
+function openPinDialog(mode, id) {
+  const account = state.accounts.find((a) => a.id === id);
+  if (!account) return;
+  win.webContents.focus();
+  win.webContents.send('ui:pin', { mode, id, name: account.name });
+}
+
 function publicState() {
-  return { accounts: state.accounts, children, activeId: state.activeId, loading: [...loading] };
+  // Nunca envia o hash do PIN para a barra; e não expõe o título da página de abas bloqueadas.
+  const locked = new Set(state.accounts.filter((a) => isLocked(a.id)).map((a) => a.id));
+  return {
+    accounts: state.accounts.map(({ pin, ...a }) => ({ ...a, hasPin: !!pin, title: locked.has(a.id) ? undefined : a.title })),
+    children: children.map((c) => (locked.has(c.parentId) ? { ...c, title: undefined, url: undefined } : c)),
+    locked: [...locked],
+    activeId: state.activeId,
+    loading: [...loading],
+  };
 }
 
 function broadcast() {
   win?.webContents.send('tabs:update', publicState());
 }
 
+// A página da aba ativa, se estiver à mostra (bloqueada não conta: nada de DevTools, recarregar etc.).
 function activeView() {
-  return views.get(state.activeId);
+  return isLocked(state.activeId) ? undefined : views.get(state.activeId);
 }
 
 // ---------- views ----------
@@ -193,9 +275,11 @@ function layout() {
   const { width, height } = win.getContentBounds();
   for (const [id, view] of views) {
     view.setBounds({ x: 0, y: TAB_BAR_HEIGHT, width, height: Math.max(0, height - TAB_BAR_HEIGHT) });
-    view.setVisible(id === state.activeId);
+    view.setVisible(id === state.activeId && !isLocked(id) && !modalOpen);
   }
-  activeView()?.webContents.focus();
+  // Bloqueada ou com diálogo aberto, o foco vai para a barra (tela do PIN).
+  if (modalOpen || isLocked(state.activeId)) win.webContents.focus();
+  else activeView()?.webContents.focus();
 }
 
 // ---------- ações ----------
@@ -212,7 +296,7 @@ function addAccount(name) {
 function activate(id) {
   const account = findTab(id);
   if (!account || id === state.activeId) return;
-  ensureView(account);
+  if (!isLocked(id)) ensureView(account); // bloqueada só carrega depois do PIN
   state.activeId = id;
   saveState();
   layout();
@@ -256,7 +340,7 @@ async function removeAccount(id) {
     if (state.activeId === id) {
       const next = state.accounts[Math.min(index, state.accounts.length - 1)];
       state.activeId = next.id;
-      ensureView(next);
+      if (!isLocked(next.id)) ensureView(next);
     }
     saveState();
     layout();
@@ -285,7 +369,7 @@ async function wipe(id) {
 function addChild(parentId, rawUrl) {
   const parent = state.accounts.find((a) => a.id === parentId);
   const url = normalizeUrl(rawUrl);
-  if (!parent) return;
+  if (!parent || isLocked(parentId)) return;
   if (!url) {
     dialog.showMessageBox(win, { type: 'error', message: 'URL inválida.', detail: 'Use um endereço http:// ou https://.' });
     return;
@@ -316,7 +400,7 @@ function showTabMenu(id) {
   if (child) {
     Menu.buildFromTemplate([
       { label: 'Recarregar', click: () => views.get(id)?.webContents.reload() },
-      { label: 'Copiar URL', click: () => clipboard.writeText(views.get(id)?.webContents.getURL() ?? child.url) },
+      { label: 'Copiar URL', enabled: !isLocked(id), click: () => clipboard.writeText(views.get(id)?.webContents.getURL() ?? child.url) },
       { type: 'separator' },
       { label: 'Fechar aba filha', click: () => closeChild(id) },
     ]).popup({ window: win });
@@ -324,8 +408,15 @@ function showTabMenu(id) {
   }
   const account = state.accounts.find((a) => a.id === id);
   if (!account) return;
+  const locked = isLocked(id);
+  // PIN só se define/remove na conta (pai); as filhas seguem a regra dela.
+  const pinItems = !account.pin
+    ? [{ label: 'Definir PIN…', click: () => openPinDialog('set', id) }]
+    : [{ label: 'Remover PIN…', click: () => openPinDialog('remove', id) }];
   Menu.buildFromTemplate([
-    { label: 'Nova aba filha…', click: () => { win.webContents.focus(); win.webContents.send('ui:add-child', id); } },
+    { label: 'Nova aba filha…', enabled: !locked, click: () => { win.webContents.focus(); win.webContents.send('ui:add-child', id); } },
+    { type: 'separator' },
+    ...pinItems,
     { type: 'separator' },
     { label: 'Renomear', click: () => { win.webContents.focus(); win.webContents.send('ui:rename', id); } },
     { label: 'Recarregar', click: () => views.get(id)?.webContents.reload() },
@@ -352,6 +443,10 @@ ipcMain.on('tabs:reload', (_e, id) => views.get(id)?.webContents.reload());
 ipcMain.on('tabs:context', (_e, id) => showTabMenu(id));
 ipcMain.on('tabs:add-child', (_e, parentId, url) => addChild(parentId, url));
 ipcMain.on('tabs:close-child', (_e, id) => closeChild(id));
+ipcMain.handle('pin:set', (_e, id, pin) => setPin(id, pin));
+ipcMain.handle('pin:remove', (_e, id, pin) => removePin(id, pin));
+ipcMain.handle('pin:unlock', (_e, id, pin) => unlock(id, pin));
+ipcMain.on('ui:modal', (_e, open) => { modalOpen = !!open; layout(); });
 
 // ---------- menu / atalhos ----------
 
@@ -374,7 +469,7 @@ function buildMenu() {
           accelerator: 'CmdOrCtrl+Shift+T',
           click: () => {
             const parentId = findTab(state.activeId)?.parentId ?? state.activeId;
-            if (parentId) { win.webContents.focus(); win.webContents.send('ui:add-child', parentId); }
+            if (parentId && !isLocked(parentId)) { win.webContents.focus(); win.webContents.send('ui:add-child', parentId); }
           },
         },
         { label: 'Fechar aba filha', accelerator: 'CmdOrCtrl+W', click: () => closeChild(state.activeId) },
@@ -445,7 +540,7 @@ function createWindow() {
   } else {
     const active = state.accounts.find((a) => a.id === state.activeId) ?? state.accounts[0];
     state.activeId = active.id;
-    ensureView(active);
+    if (!isLocked(active.id)) ensureView(active);
     saveState();
     layout();
   }

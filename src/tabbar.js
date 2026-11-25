@@ -1,7 +1,10 @@
 const bar = document.getElementById('bar');
 const COLORS = ['#d97757', '#6a9bcc', '#788c5d', '#c4a35a', '#a77bca', '#cc6a8f', '#5fa8a0', '#b0aea5'];
 
-let state = { accounts: [], children: [], activeId: null, loading: [] };
+const panel = document.getElementById('panel');
+let state = { accounts: [], children: [], locked: [], activeId: null, loading: [] };
+let pinRequest = null;    // diálogo de PIN aberto: { mode: 'set' | 'remove', id, name }
+let panelKey = null;      // o que #panel mostra agora (não recria enquanto se digita)
 let editingId = null;     // aba sendo renomeada
 let adding = false;       // campo de "nova conta" aberto
 let childParentId = null; // conta cujo campo de URL da "nova aba filha" está aberto
@@ -50,6 +53,8 @@ function render() {
       dot.style.background = color;
     }
     tab.append(dot);
+    const locked = state.locked.includes(account.id);
+    if (account.hasPin) tab.append(lockIcon(locked));
 
     if (editingId === account.id) {
       tab.append(inlineInput(account.name, 'Nome da conta',
@@ -71,7 +76,7 @@ function render() {
     bar.append(tab);
 
     for (const child of state.children.filter((c) => c.parentId === account.id)) {
-      bar.append(childTab(child, account, color, loading.has(child.id)));
+      bar.append(childTab(child, account, color, loading.has(child.id), locked));
     }
 
     // Campo de URL da nova filha: só aparece até ser preenchido.
@@ -101,17 +106,145 @@ function render() {
   }
 }
 
+function lockIcon(locked) {
+  const el = document.createElement('span');
+  el.className = 'lock';
+  el.textContent = locked ? '🔒' : '🔓';
+  el.title = locked ? 'Bloqueada: digite o PIN' : 'Com PIN (desbloqueada)';
+  return el;
+}
+
+// ---------- PIN: tela de bloqueio e diálogo ----------
+
+function pinBox({ icon, title, text, fields, submitLabel, onSubmit, onCancel }) {
+  const box = document.createElement('form');
+  box.className = 'pin-box';
+  const h = document.createElement('h2');
+  h.textContent = title;
+  const p = document.createElement('p');
+  p.textContent = text;
+  const ic = document.createElement('div');
+  ic.className = 'icon';
+  ic.textContent = icon;
+  const inputs = fields.map((placeholder) => {
+    const input = document.createElement('input');
+    input.type = 'password';
+    input.placeholder = placeholder;
+    input.autocomplete = 'off';
+    return input;
+  });
+  const error = document.createElement('div');
+  error.className = 'error';
+  const buttons = document.createElement('div');
+  buttons.className = 'buttons';
+  if (onCancel) {
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.textContent = 'Cancelar';
+    cancel.addEventListener('click', onCancel);
+    buttons.append(cancel);
+  }
+  const ok = document.createElement('button');
+  ok.type = 'submit';
+  ok.className = 'primary';
+  ok.textContent = submitLabel;
+  buttons.append(ok);
+
+  box.addEventListener('keydown', (e) => { if (e.key === 'Escape' && onCancel) onCancel(); });
+  box.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    ok.disabled = true;
+    error.textContent = '';
+    const message = await onSubmit(inputs.map((i) => i.value));
+    ok.disabled = false;
+    if (message) {
+      error.textContent = message;
+      inputs.forEach((i) => { i.value = ''; });
+      inputs[0].focus();
+    }
+  });
+  box.append(ic, h, p, ...inputs, error, buttons);
+  requestAnimationFrame(() => inputs[0].focus());
+  return box;
+}
+
+function closePinDialog() {
+  pinRequest = null;
+  window.tabs.setModal(false);
+  renderPanel();
+}
+
+function renderPanel() {
+  const active = state.accounts.find((a) => a.id === state.activeId)
+    ?? state.children.find((c) => c.id === state.activeId);
+  const ownerId = active?.parentId ?? active?.id;
+  const owner = state.accounts.find((a) => a.id === ownerId);
+  const lockedActive = owner && state.locked.includes(owner.id);
+
+  const key = pinRequest ? `${pinRequest.mode}:${pinRequest.id}` : lockedActive ? `unlock:${owner.id}` : null;
+  if (key === panelKey) return; // já está na tela certa: não apaga o que se digita
+  panelKey = key;
+  panel.hidden = !key;
+  panel.replaceChildren();
+  if (!key) return;
+
+  if (pinRequest?.mode === 'set') {
+    const { id, name } = pinRequest;
+    panel.append(pinBox({
+      icon: '🔐',
+      title: `Definir PIN — ${name}`,
+      text: 'A conta e as abas filhas abrem bloqueadas sempre que o app iniciar.',
+      fields: ['Novo PIN (mín. 4)', 'Repita o PIN'],
+      submitLabel: 'Definir',
+      onCancel: closePinDialog,
+      onSubmit: async ([pin, again]) => {
+        if (pin !== again) return 'Os PINs não conferem.';
+        const r = await window.tabs.setPin(id, pin);
+        if (!r.ok) return r.error;
+        closePinDialog();
+      },
+    }));
+  } else if (pinRequest?.mode === 'remove') {
+    const { id, name } = pinRequest;
+    panel.append(pinBox({
+      icon: '🔓',
+      title: `Remover PIN — ${name}`,
+      text: 'Digite o PIN atual para remover.',
+      fields: ['PIN atual'],
+      submitLabel: 'Remover',
+      onCancel: closePinDialog,
+      onSubmit: async ([pin]) => {
+        const r = await window.tabs.removePin(id, pin);
+        if (!r.ok) return r.error;
+        closePinDialog();
+      },
+    }));
+  } else {
+    panel.append(pinBox({
+      icon: '🔒',
+      title: `${owner.name} está bloqueada`,
+      text: active.parentId ? 'Digite o PIN da conta para ver esta aba filha.' : 'Digite o PIN para desbloquear.',
+      fields: ['PIN'],
+      submitLabel: 'Desbloquear',
+      onSubmit: async ([pin]) => {
+        const r = await window.tabs.unlock(owner.id, pin);
+        if (!r.ok) return r.error;
+      },
+    }));
+  }
+}
+
 function hostOf(url) {
   try { return new URL(url).host; } catch { return url; }
 }
 
 // Aba filha: mesma cor da conta pai, mesma sessão, fecha no ×.
-function childTab(child, parent, color, isLoading) {
+function childTab(child, parent, color, isLoading, locked) {
   const tab = document.createElement('div');
   tab.className = 'tab child' + (child.id === state.activeId ? ' active' : '');
   tab.style.setProperty('--parent-color', color);
-  const label = child.title || hostOf(child.url);
-  tab.title = `${label}\nAba filha de "${parent.name}" (mesma sessão)\n${child.url}` +
+  const label = locked ? 'Bloqueada' : child.title || hostOf(child.url);
+  tab.title = `${label}\nAba filha de "${parent.name}" (mesma sessão)\n${child.url ?? ''}` +
     `${isLoading ? '\n(carregando…)' : ''}\nFechar não desconecta a conta.`;
 
   const dot = document.createElement('span');
@@ -134,7 +267,9 @@ function childTab(child, parent, color, isLoading) {
   close.addEventListener('mousedown', (e) => e.stopPropagation());
   close.addEventListener('click', () => window.tabs.closeChild(child.id));
 
-  tab.append(dot, name, close);
+  tab.append(dot);
+  if (parent.hasPin) tab.append(lockIcon(locked));
+  tab.append(name, close);
   tab.addEventListener('mousedown', (e) => { if (e.button === 0) window.tabs.activate(child.id); });
   tab.addEventListener('auxclick', (e) => { if (e.button === 1) window.tabs.reload(child.id); });
   tab.addEventListener('contextmenu', (e) => { e.preventDefault(); window.tabs.contextMenu(child.id); });
@@ -148,12 +283,18 @@ function startAdding() {
 
 window.tabs.onUpdate((s) => {
   state = s;
+  renderPanel();
   // Não recria a barra enquanto se digita a URL (perderia o texto); o campo é
   // atualizado ao terminar.
   if (childParentId && document.activeElement?.classList.contains('child-input')) return;
   render();
 });
+window.tabs.onPin((req) => {
+  pinRequest = req;
+  window.tabs.setModal(true);
+  renderPanel();
+});
 window.tabs.onNewTab(startAdding);
 window.tabs.onRename((id) => { editingId = id; render(); });
 window.tabs.onAddChild((parentId) => { childParentId = parentId; render(); });
-window.tabs.get().then((s) => { state = s; render(); });
+window.tabs.get().then((s) => { state = s; render(); renderPanel(); });

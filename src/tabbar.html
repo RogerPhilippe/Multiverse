@@ -6,7 +6,9 @@
   <title>Multiverse</title>
   <style>
     * { box-sizing: border-box; }
-    html, body { margin: 0; height: 40px; overflow: hidden; }
+    /* A janela inteira é desta página; as abas (páginas) ficam por cima, abaixo
+       da barra. Sem página à mostra (aba bloqueada ou diálogo), aparece #panel. */
+    html, body { margin: 0; height: 100%; overflow: hidden; }
     body {
       background: #1f1e1d;
       color: #d6d3cd;
@@ -74,10 +76,34 @@
     }
     .tab .close:hover { background: #4a4743; opacity: 1; }
     .child-input { align-self: center; width: 240px; }
+    .tab .lock { flex: none; font-size: 11px; opacity: .8; }
+    #panel {
+      position: absolute; inset: 40px 0 0 0;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #panel[hidden] { display: none; }
+    .pin-box {
+      display: flex; flex-direction: column; gap: 10px; width: 280px;
+      padding: 24px; border-radius: 12px; background: #2a2826; text-align: center;
+      user-select: text;
+    }
+    .pin-box .icon { font-size: 28px; }
+    .pin-box h2 { margin: 0; font-size: 16px; font-weight: 600; color: #fff; }
+    .pin-box p { margin: 0; font-size: 12px; opacity: .75; }
+    .pin-box input { width: 100%; height: 32px; font-size: 15px; text-align: center; letter-spacing: 2px; }
+    .pin-box .error { min-height: 16px; color: #e5826b; font-size: 12px; }
+    .pin-box .buttons { display: flex; gap: 8px; }
+    .pin-box button {
+      flex: 1; height: 30px; border: 0; border-radius: 6px; cursor: pointer;
+      font: inherit; background: #3a3835; color: inherit;
+    }
+    .pin-box button.primary { background: #d97757; color: #fff; }
+    .pin-box button:disabled { opacity: .5; cursor: default; }
   </style>
 </head>
 <body>
   <div id="bar"></div>
+  <div id="panel" hidden></div>
   <script src="tabbar.js"></script>
 </body>
 </html>

@@ -63,6 +63,8 @@ O app não tem certificado da Apple nem da Microsoft:
 | Remover conta (fecha a aba na hora; login e dados são apagados em segundo plano) | Clique direito na aba → *Remover conta…* |
 | Aba filha (mesma sessão da conta, abre uma URL colada) | Clique direito na aba → *Nova aba filha…*, ou ⌘⇧T |
 | Fechar aba filha (a conta continua logada) | `×` na aba filha ou ⌘W |
+| PIN na conta (vale também para as abas filhas) | Clique direito na aba → *Definir PIN…* |
+| Remover PIN (pede o PIN atual) | Clique direito → *Remover PIN…* |
 | Trocar de aba | ⌘1…⌘9, Ctrl+Tab / Ctrl+Shift+Tab |
 | Recarregar aba | ⌘R ou clique do meio na aba |
 | Voltar / avançar | ⌘[ / ⌘] |
@@ -72,6 +74,7 @@ O app não tem certificado da Apple nem da Microsoft:
 
 - Só a aba ativa carrega ao abrir o app; as outras carregam na primeira vez que são abertas. Enquanto a aba carrega, a bolinha vira um anel girando.
 - **Abas filhas** usam os mesmos cookies da aba pai, então abrem a URL já logadas nessa conta. Servem, por exemplo, para o login do Claude Code: copie o link que ele mostra, crie uma aba filha na conta certa, cole o link, autorize e copie o código. O campo da URL fica aberto até você colar (Enter) ou cancelar (Esc). As filhas não são salvas: somem ao fechar o app.
+- **PIN:** uma conta com PIN abre bloqueada toda vez que o app inicia; a página só carrega depois do PIN certo, e fica desbloqueada até o app ser fechado. As abas filhas seguem a regra da conta (desbloquear a conta libera as filhas); definir e remover o PIN só na aba da conta. O PIN é guardado só como hash (scrypt). Ele protege a interface, não os arquivos: os cookies no disco não são criptografados (veja o ROADMAP).
 - Os links externos abertos nas conversas vão para o navegador padrão.
 - Os popups de login (Google/Apple) abrem dentro do app, na sessão da aba que os abriu.
 - **Login com Google não funciona:** o Google bloqueia apps Electron ("Este navegador ou app pode não ser seguro"). Entre com e-mail: a claude.ai envia um código, sem senha.
