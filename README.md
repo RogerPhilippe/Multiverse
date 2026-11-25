@@ -4,7 +4,7 @@
 
 App desktop (Electron) para usar várias contas da [claude.ai](https://claude.ai) ao mesmo tempo, uma por aba. Outros serviços foram testados e deixados de fora; veja o [ROADMAP.md](ROADMAP.md).
 
-Projeto pessoal e privado. Veja os planos futuros em [ROADMAP.md](ROADMAP.md).
+Projeto pessoal. Veja os planos futuros em [ROADMAP.md](ROADMAP.md).
 
 ## Por que existe
 
