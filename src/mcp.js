@@ -138,12 +138,14 @@ function buildServer(api, version) {
     async ({ child_id, ...opts }) => json(await api.scroll(child_id, opts)));
 
   reg('wait_for', 'Esperar',
-    'Espera a aba filha terminar de carregar e, se informado, um seletor CSS e/ou um texto aparecerem.',
+    'Espera a aba filha terminar de carregar e, se informado, um seletor CSS e/ou um texto aparecerem. ' +
+    'O texto vale se estiver visível na página ou num aria-label/title (botões só com ícone). ' +
+    'Para esperar uma resposta de IA ou outro processamento demorado, use um timeout_ms maior (ex.: 60000).',
     {
       child_id: childId,
       selector: z.string().optional(),
       text: z.string().optional(),
-      timeout_ms: z.number().int().min(100).max(60000).optional().describe('padrão 10000'),
+      timeout_ms: z.number().int().min(100).max(60000).optional().describe('padrão 10000; máximo 60000'),
     },
     async ({ child_id, selector, text: t, timeout_ms }) => json(await api.waitFor(child_id, { selector, text: t, timeoutMs: timeout_ms ?? 10000 })));
 

@@ -1085,15 +1085,22 @@ const mcpApi = {
     const start = Date.now();
     await waitLoad(wc, timeoutMs);
     if (!selector && !text) return { ok: true, waited_ms: Date.now() - start };
-    const check = `(() => { ${selector ? `if (!document.querySelector(${JSON.stringify(selector)})) return false;` : ''}
-      ${text ? `if (!(document.body && document.body.innerText.includes(${JSON.stringify(text)}))) return false;` : ''} return true; })()`;
+    // O texto vale se estiver visível na página ou num aria-label/title (botões só com ícone).
+    const check = `(() => {
+      const hasText = (t) => (document.body && document.body.innerText.includes(t)) ||
+        [...document.querySelectorAll('[aria-label], [title]')].some((el) =>
+          (el.getAttribute('aria-label') || '').includes(t) || (el.getAttribute('title') || '').includes(t));
+      ${selector ? `if (!document.querySelector(${JSON.stringify(selector)})) return false;` : ''}
+      ${text ? `if (!hasText(${JSON.stringify(text)})) return false;` : ''} return true; })()`;
     while (Date.now() - start < timeoutMs) {
       try {
         if (await isolated(wc, check)) return { ok: true, waited_ms: Date.now() - start };
       } catch {} // a página pode estar trocando no meio
       await delay(250);
     }
-    throw new ToolError(`Tempo esgotado (${timeoutMs} ms) esperando ${selector ? `o seletor ${selector}` : ''}${selector && text ? ' e ' : ''}${text ? `o texto "${text}"` : ''}.`);
+    throw new ToolError(`Tempo esgotado (${timeoutMs} ms) esperando ${selector ? `o seletor ${selector}` : ''}${selector && text ? ' e ' : ''}${text ? `o texto "${text}"` : ''}. ` +
+      'A página pode ainda estar carregando ou processando (respostas de IA podem levar mais tempo): ' +
+      'chame wait_for de novo ou use um timeout_ms maior (até 60000). Rode snapshot para ver o estado atual.');
   },
 
   // Roda no mundo da própria página (acesso às variáveis dela), como no Chrome.
