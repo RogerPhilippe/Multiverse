@@ -2,7 +2,9 @@
 
 > **Cada conta no seu universo.**
 
-App desktop (Electron) para usar várias contas da [claude.ai](https://claude.ai) ao mesmo tempo, uma por aba. Outros serviços foram testados e deixados de fora; veja o [ROADMAP.md](ROADMAP.md).
+App desktop (Electron) para usar várias contas da [claude.ai](https://claude.ai) ao mesmo tempo, uma por aba, com abas filhas na mesma sessão, PIN por conta e acesso do Claude Code às contas liberadas (MCP). Outros serviços foram testados e deixados de fora; veja o [ROADMAP.md](ROADMAP.md).
+
+Manual do Claude Code: [manual/claude-code.md](manual/claude-code.md). Página do projeto (GitHub Pages): [docs/index.html](docs/index.html).
 
 Projeto pessoal. Veja os planos futuros em [ROADMAP.md](ROADMAP.md).
 
@@ -95,7 +97,7 @@ src/
   mcp.js       servidor MCP local para o Claude Code (as regras ficam em main.js)
   preload.js   ponte segura (contextBridge) entre a barra de abas e o main
   tabbar.html  barra de abas
-  tabbar.js    lógica da barra (renderizar, adicionar, renomear, remover)
+  tabbar.js    lógica da barra: abas, abas filhas, tela/diálogos de PIN, espelho das abas do Claude Code
 build/
   icon.svg     fonte do ícone (três anéis = três universos)
   icon.png     1024px, gerado
@@ -104,13 +106,20 @@ build/
   release.yml     build mac/win/linux e release no GitHub
 scripts/
   build-icons.js  gera icon.png e icon.icns a partir do SVG (`npm run icons`)
+manual/
+  claude-code.md  passo a passo (com prints) para usar o Claude Code com o Multiverse
+planos/           planos e decisões técnicas (MCP, conectores, prints do manual)
+docs/             página do GitHub Pages
 ```
 
 ## Dados
 
-- Lista de contas: `~/Library/Application Support/Multiverse/accounts.json`
+- Lista de contas: `~/Library/Application Support/Multiverse/accounts.json`. Também guarda o hash do PIN de cada conta (scrypt com salt, nunca o PIN), quais contas estão liberadas para o Claude Code e as opções do servidor MCP (`mcp.enabled`, `mcp.port`).
+- Token do servidor MCP: `~/Library/Application Support/Multiverse/mcp-token` (só leitura do usuário). *Gerar novo token* no menu troca o arquivo.
 - Sessões (cookies etc.): `~/Library/Application Support/Multiverse/Partitions/`
+
+No Windows, a pasta é `%APPDATA%\Multiverse\`; no Linux, `~/.config/Multiverse/`.
 
 O caminho vem do `productName` do `package.json`. Em desenvolvimento (`npm start`), o app usa `~/Library/Application Support/Multiverse Dev/`, para nunca disputar dados com o app instalado. Só uma instância roda por pasta de dados: abrir de novo traz a janela existente para frente.
 
-**Segurança:** o login fica salvo de propósito, para não pedir credenciais a cada abertura. Os cookies ficam nos arquivos acima, protegidos pelas permissões do usuário (ainda sem criptografia; veja o [ROADMAP.md](ROADMAP.md)). Para apagar um login, use *Remover conta…*.
+**Segurança:** o login fica salvo de propósito, para não pedir credenciais a cada abertura. Os cookies ficam nos arquivos acima, protegidos pelas permissões do usuário (ainda sem criptografia; veja o [ROADMAP.md](ROADMAP.md)). Para apagar um login, use *Remover conta…*. O PIN protege a interface, não os arquivos. O servidor do Claude Code atende só `127.0.0.1`, exige o token e recusa requisições vindas de páginas web (`Origin`/`Host`).
