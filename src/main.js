@@ -320,6 +320,7 @@ function destroyView(id) {
   const view = views.get(id);
   if (!view) return;
   if (view.host) {
+    if (mirrorFocusId === id) mirrorFocusId = null;
     view.host.destroy();
   } else {
     win.contentView.removeChildView(view);
@@ -349,6 +350,7 @@ function placeView(id, view) {
 function layout() {
   if (!win) return;
   for (const [id, view] of views) placeView(id, view);
+  if (mirrorFocusId && !mirrorShown(mirrorFocusId)) blurMirror();
   // Bloqueada, com diálogo aberto ou filha do Claude Code (espelho), o foco vai para a barra.
   const active = views.get(state.activeId);
   if (modalOpen || isLocked(state.activeId) || (active && isOffscreen(active))) {
@@ -389,11 +391,35 @@ function flushMirror() {
   win.webContents.send('mirror:frame', { id: frame.id, width, height, data: frame.image.toJPEG(80).toString('base64') });
 }
 
+// Foco de teclado da filha. A janela offscreen nunca é mostrada, então nunca ganha foco
+// sozinha: a página fica sem foco (document.hasFocus() false) e campos não entram em
+// edição. Quando o usuário interage com o espelho, a página ganha o foco (sem mostrar a
+// janela nem tirar o foco do Multiverse); ao sair da aba ou do app, perde. Filhas que o
+// Claude Code usa em segundo plano nunca ganham foco por conta própria.
+let mirrorFocusId = null;
+
+const mirrorShown = (id) =>
+  id === state.activeId && !isLocked(id) && !modalOpen && !!win && win.isFocused() && !!views.get(id)?.host;
+
+function focusMirror(id) {
+  if (mirrorFocusId === id || !mirrorShown(id)) return;
+  blurMirror();
+  views.get(id).host.focusOnWebView();
+  mirrorFocusId = id;
+}
+
+function blurMirror() {
+  const host = views.get(mirrorFocusId)?.host;
+  mirrorFocusId = null;
+  if (host && !host.isDestroyed()) host.blurWebView();
+}
+
 // Ações do usuário no espelho, repassadas à filha (só à que está aberta na tela).
 function mirrorInput(id, input) {
   const child = children.find((c) => c.id === id && c.createdBy === 'agent');
   const wc = views.get(id)?.webContents;
   if (!child || !wc || id !== state.activeId || isLocked(id) || !input || typeof input !== 'object') return;
+  if (input.type === 'mouseDown' || input.kind === 'text' || input.kind === 'key') focusMirror(id);
   const num = (v) => (Number.isFinite(v) ? Math.round(v) : 0);
   const modifiers = ['shift', 'control', 'alt', 'meta'].filter((m) => input[m]);
   switch (input.kind) {
@@ -1189,6 +1215,7 @@ function createWindow() {
   });
   win.loadFile(path.join(__dirname, 'tabbar.html'));
   win.on('resize', layout);
+  win.on('blur', blurMirror); // o app perdeu o foco: a página da filha também
   win.on('closed', () => {
     win = null;
     // As janelas invisíveis das filhas do Claude Code fecham junto (senão o app não encerra).
