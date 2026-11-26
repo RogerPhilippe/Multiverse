@@ -15,6 +15,8 @@ contextBridge.exposeInMainWorld('tabs', {
   unlock: (id, pin) => ipcRenderer.invoke('pin:unlock', id, pin),
   setModal: (open) => ipcRenderer.send('ui:modal', open),
   onPin: (fn) => ipcRenderer.on('ui:pin', (_e, req) => fn(req)),
+  mirrorInput: (id, input) => ipcRenderer.send('mirror:input', id, input),
+  onMirror: (fn) => ipcRenderer.on('mirror:frame', (_e, frame) => fn(frame)),
   onAddChild: (fn) => ipcRenderer.on('ui:add-child', (_e, parentId) => fn(parentId)),
   onUpdate: (fn) => ipcRenderer.on('tabs:update', (_e, state) => fn(state)),
   onNewTab: (fn) => ipcRenderer.on('ui:new-tab', () => fn()),

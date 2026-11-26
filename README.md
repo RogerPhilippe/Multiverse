@@ -65,6 +65,8 @@ O app não tem certificado da Apple nem da Microsoft:
 | Fechar aba filha (a conta continua logada) | `×` na aba filha ou ⌘W |
 | PIN na conta (vale também para as abas filhas) | Clique direito na aba → *Definir PIN…* |
 | Remover PIN (pede o PIN atual) | Clique direito → *Remover PIN…* |
+| Liberar a conta para o Claude Code (MCP) | Clique direito na aba → *Permitir Claude Code* |
+| Ligar o servidor do Claude Code e copiar o comando | Menu *Contas → Claude Code (MCP)* |
 | Trocar de aba | ⌘1…⌘9, Ctrl+Tab / Ctrl+Shift+Tab |
 | Recarregar aba | ⌘R ou clique do meio na aba |
 | Voltar / avançar | ⌘[ / ⌘] |
@@ -75,6 +77,12 @@ O app não tem certificado da Apple nem da Microsoft:
 - Só a aba ativa carrega ao abrir o app; as outras carregam na primeira vez que são abertas. Enquanto a aba carrega, a bolinha vira um anel girando.
 - **Abas filhas** usam os mesmos cookies da aba pai, então abrem a URL já logadas nessa conta. Servem, por exemplo, para o login do Claude Code: copie o link que ele mostra, crie uma aba filha na conta certa, cole o link, autorize e copie o código. O campo da URL fica aberto até você colar (Enter) ou cancelar (Esc). As filhas não são salvas: somem ao fechar o app.
 - **PIN:** uma conta com PIN abre bloqueada toda vez que o app inicia; a página só carrega depois do PIN certo, e fica desbloqueada até o app ser fechado. As abas filhas seguem a regra da conta (desbloquear a conta libera as filhas); definir e remover o PIN só na aba da conta. O PIN é guardado só como hash (scrypt). Ele protege a interface, não os arquivos: os cookies no disco não são criptografados (veja o ROADMAP).
+- **Claude Code (MCP):** o Multiverse pode ser um servidor MCP local (só `127.0.0.1`, porta 47821, com token), desligado por padrão. Para usar:
+  1. Ligue em *Contas → Claude Code (MCP) → Servidor ligado*.
+  2. Libere as contas desejadas pelo clique direito (aparece 🤖 na aba; com fundo verde quando o Claude Code está usando).
+  3. Rode no terminal o comando de *Copiar comando do Claude Code*.
+
+  Ele lê a aba da conta e trabalha em abas filhas próprias (🤖): abre páginas, clica, digita e tira prints, em segundo plano, mesmo com o Multiverse minimizado. Clicando na aba dele, você vê a página ao vivo e pode interagir. Contas bloqueadas por PIN ficam inacessíveis. Passo a passo com prints: [manual/claude-code.md](manual/claude-code.md). Plano completo: [planos/mcp-claude-code.md](planos/mcp-claude-code.md).
 - Os links externos abertos nas conversas vão para o navegador padrão.
 - Os popups de login (Google/Apple) abrem dentro do app, na sessão da aba que os abriu.
 - **Login com Google não funciona:** o Google bloqueia apps Electron ("Este navegador ou app pode não ser seguro"). Entre com e-mail: a claude.ai envia um código, sem senha.
@@ -84,6 +92,7 @@ O app não tem certificado da Apple nem da Microsoft:
 ```
 src/
   main.js      processo principal: janela, abas (WebContentsView), sessões, menu/atalhos
+  mcp.js       servidor MCP local para o Claude Code (as regras ficam em main.js)
   preload.js   ponte segura (contextBridge) entre a barra de abas e o main
   tabbar.html  barra de abas
   tabbar.js    lógica da barra (renderizar, adicionar, renomear, remover)

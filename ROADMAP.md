@@ -39,6 +39,8 @@ Ao mudar o `productName` de novo, lembrar que a pasta de dados vem dele: sem mig
 - [ ] Assinar e notarizar (Apple Developer ID, certificado Windows) para remover os avisos de segurança.
 - [ ] Atualização automática (electron-updater, usando os `latest*.yml` do release).
 - [x] Abas filhas: mesma sessão da aba pai, abertas a partir de uma URL colada (ex.: login do Claude Code).
+- [x] Claude Code via MCP: lê a aba da conta e trabalha em abas filhas próprias, offscreen, mesmo com o app minimizado ([planos/mcp-claude-code.md](planos/mcp-claude-code.md), [manual](manual/claude-code.md)).
+- [ ] Conectores da claude.ai dentro do app ([planos/conectores.md](planos/conectores.md)).
 - [ ] Reordenar abas arrastando.
 - [ ] Badge/contador de notificações por aba.
 - [ ] Cor personalizada por aba.

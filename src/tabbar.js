@@ -55,6 +55,7 @@ function render() {
     tab.append(dot);
     const locked = state.locked.includes(account.id);
     if (account.hasPin) tab.append(lockIcon(locked));
+    if (account.mcpAllowed) tab.append(mcpIcon());
 
     if (editingId === account.id) {
       tab.append(inlineInput(account.name, 'Nome da conta',
@@ -104,6 +105,18 @@ function render() {
     add.addEventListener('click', startAdding);
     bar.append(add);
   }
+}
+
+// 🤖 na conta liberada para o Claude Code: apagado com o servidor desligado,
+// aceso quando o Claude Code fez requisições há pouco.
+function mcpIcon() {
+  const el = document.createElement('span');
+  const { on, connected } = state.mcp ?? {};
+  el.className = 'mcp' + (on ? ' on' : '') + (connected ? ' live' : '');
+  el.textContent = '🤖';
+  el.title = !on ? 'Liberada para o Claude Code (servidor desligado: Contas → Claude Code (MCP))'
+    : connected ? 'Claude Code conectado' : 'Liberada para o Claude Code';
+  return el;
 }
 
 function lockIcon(locked) {
@@ -168,6 +181,82 @@ function pinBox({ icon, title, text, fields, submitLabel, onSubmit, onCancel }) 
   return box;
 }
 
+// ---------- espelho da aba do Claude Code ----------
+// A aba do Claude Code é desenhada fora da tela (funciona com o app minimizado).
+// Aqui aparecem os quadros dela ao vivo, e cliques, rolagem e teclas vão para ela.
+
+let mirror = null; // { id, img }
+
+function buildMirror(id) {
+  panel.classList.add('mirror');
+  panel.tabIndex = 0;
+  const img = document.createElement('img');
+  img.alt = '';
+  img.draggable = false;
+  const badge = document.createElement('div');
+  badge.className = 'badge';
+  badge.textContent = '🤖 Aba do Claude Code · você também pode clicar e digitar aqui';
+  // Recebe o texto já composto pelo sistema (acentos, teclas mortas, IME, colar).
+  const input = document.createElement('textarea');
+  input.className = 'mirror-input';
+  input.setAttribute('aria-label', 'Digitar na aba do Claude Code');
+  panel.append(img, badge, input);
+  mirror = { id, img, input };
+
+  // Posição na página: a imagem fica em escala (object-fit: contain), alinhada ao topo à esquerda.
+  const at = (e) => {
+    const r = img.getBoundingClientRect();
+    const scale = img.naturalWidth ? Math.min(r.width / img.naturalWidth, r.height / img.naturalHeight) : 1;
+    return { x: (e.clientX - r.left) / scale, y: (e.clientY - r.top) / scale };
+  };
+  const mods = (e) => ({ shift: e.shiftKey, control: e.ctrlKey, alt: e.altKey, meta: e.metaKey });
+  const send = (input) => window.tabs.mirrorInput(id, input);
+  const button = (e) => ['left', 'middle', 'right'][e.button] ?? 'left';
+
+  img.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    input.focus();
+    send({ kind: 'mouse', type: 'mouseDown', ...at(e), button: button(e), clickCount: e.detail, ...mods(e) });
+  });
+  img.addEventListener('mouseup', (e) => send({ kind: 'mouse', type: 'mouseUp', ...at(e), button: button(e), clickCount: e.detail, ...mods(e) }));
+  let lastMove = 0;
+  img.addEventListener('mousemove', (e) => {
+    if (Date.now() - lastMove < 40) return; // hover e arrastar, sem inundar
+    lastMove = Date.now();
+    send({ kind: 'mouse', type: 'mouseMove', ...at(e), button: button(e), ...mods(e) });
+  });
+  img.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    send({ kind: 'wheel', ...at(e), deltaX: e.deltaX, deltaY: e.deltaY, ...mods(e) });
+  }, { passive: false });
+  img.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  // Texto: chega pelo evento input do campo invisível (já com acento/IME/colar).
+  input.addEventListener('input', (e) => {
+    if (e.isComposing) return;
+    if (input.value) send({ kind: 'text', text: input.value.slice(0, 16) });
+    input.value = '';
+  });
+  input.addEventListener('compositionend', () => {
+    if (input.value) send({ kind: 'text', text: input.value.slice(0, 16) });
+    input.value = '';
+  });
+  // Teclas especiais e atalhos (Enter, Backspace, setas, Tab, Ctrl+A…) vão como tecla.
+  input.addEventListener('keydown', (e) => {
+    if (e.isComposing || ['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'Dead', 'Unidentified', 'Process'].includes(e.key)) return;
+    const combo = e.ctrlKey || e.metaKey || e.altKey;
+    const pasting = combo && e.key.toLowerCase() === 'v'; // colar: deixa o campo receber o texto
+    if (pasting || (!combo && [...e.key].length === 1)) return; // caractere: vem pelo input
+    e.preventDefault();
+    send({ kind: 'key', key: e.key, ...mods(e) });
+  });
+  requestAnimationFrame(() => input.focus());
+}
+
+window.tabs.onMirror((frame) => {
+  if (mirror && frame.id === mirror.id) mirror.img.src = `data:image/jpeg;base64,${frame.data}`;
+});
+
 function closePinDialog() {
   pinRequest = null;
   window.tabs.setModal(false);
@@ -181,12 +270,23 @@ function renderPanel() {
   const owner = state.accounts.find((a) => a.id === ownerId);
   const lockedActive = owner && state.locked.includes(owner.id);
 
-  const key = pinRequest ? `${pinRequest.mode}:${pinRequest.id}` : lockedActive ? `unlock:${owner.id}` : null;
+  const agentActive = active?.createdBy === 'agent';
+  const key = pinRequest ? `${pinRequest.mode}:${pinRequest.id}`
+    : lockedActive ? `unlock:${owner.id}`
+    : agentActive ? `mirror:${active.id}` : null;
   if (key === panelKey) return; // já está na tela certa: não apaga o que se digita
   panelKey = key;
   panel.hidden = !key;
   panel.replaceChildren();
+  panel.classList.remove('mirror');
+  panel.removeAttribute('tabindex');
+  mirror = null;
   if (!key) return;
+
+  if (key.startsWith('mirror:')) {
+    buildMirror(active.id);
+    return;
+  }
 
   if (pinRequest?.mode === 'set') {
     const { id, name } = pinRequest;
@@ -269,6 +369,11 @@ function childTab(child, parent, color, isLoading, locked) {
 
   tab.append(dot);
   if (parent.hasPin) tab.append(lockIcon(locked));
+  if (child.createdBy === 'agent') {
+    const bot = mcpIcon();
+    bot.title = 'Aba criada pelo Claude Code (você pode olhar e fechar)';
+    tab.append(bot);
+  }
   tab.append(name, close);
   tab.addEventListener('mousedown', (e) => { if (e.button === 0) window.tabs.activate(child.id); });
   tab.addEventListener('auxclick', (e) => { if (e.button === 1) window.tabs.reload(child.id); });
