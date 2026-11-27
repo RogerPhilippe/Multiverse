@@ -4,7 +4,7 @@
 
 App desktop (Electron) para usar várias contas da [claude.ai](https://claude.ai) ao mesmo tempo, uma por aba, com abas filhas na mesma sessão, PIN por conta e acesso do Claude Code às contas liberadas (MCP). Outros serviços foram testados e deixados de fora; veja o [ROADMAP.md](ROADMAP.md).
 
-Manual do Claude Code: [manual/claude-code.md](manual/claude-code.md). Página do projeto (GitHub Pages): [docs/index.html](docs/index.html).
+Manual do Claude Code: [manual/claude-code.md](manual/claude-code.md). Página do projeto: [rogerphilippe.github.io/Multiverse](https://rogerphilippe.github.io/Multiverse/).
 
 Projeto pessoal. Veja os planos futuros em [ROADMAP.md](ROADMAP.md).
 
