@@ -76,6 +76,7 @@ O app não tem certificado da Apple nem da Microsoft:
 | Voltar à página inicial | ⌘⇧H |
 | Zoom | ⌘+ / ⌘− / ⌘0 |
 | DevTools da aba | ⌥⌘I |
+| Manuais, página do projeto, novidades e *Sobre* (versão) | Menu *Ajuda* (no Mac, *Sobre* fica no menu *Multiverse*) |
 
 - Só a aba ativa carrega ao abrir o app; as outras carregam na primeira vez que são abertas. Enquanto a aba carrega, a bolinha vira um anel girando.
 - **Abas filhas** usam os mesmos cookies da aba pai, então abrem a URL já logadas nessa conta. Servem, por exemplo, para o login do Claude Code: copie o link que ele mostra, crie uma aba filha na conta certa, cole o link, autorize e copie o código. O campo da URL fica aberto até você colar (Enter) ou cancelar (Esc). As filhas não são salvas: somem ao fechar o app.

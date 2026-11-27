@@ -1171,6 +1171,33 @@ ipcMain.on('mirror:input', (_e, id, input) => mirrorInput(id, input));
 
 // ---------- menu / atalhos ----------
 
+// ---------- Ajuda ----------
+
+const LINKS = {
+  site: 'https://rogerphilippe.github.io/Multiverse/',
+  manual: 'https://github.com/RogerPhilippe/Multiverse#uso',
+  manualClaudeCode: 'https://github.com/RogerPhilippe/Multiverse/blob/main/manual/claude-code.md',
+  releases: 'https://github.com/RogerPhilippe/Multiverse/releases',
+  issues: 'https://github.com/RogerPhilippe/Multiverse/issues',
+};
+
+async function showAbout() {
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'none',
+    icon: ICON,
+    title: 'Sobre o Multiverse',
+    message: `Multiverse ${app.getVersion()}`,
+    detail: 'Cada conta no seu universo.\n\n' +
+      'Várias contas do Claude ao mesmo tempo, uma por aba, cada uma num navegador isolado.\n\n' +
+      `Por Roger Philippe.\nElectron ${process.versions.electron} · Chromium ${process.versions.chrome}`,
+    buttons: ['OK', 'Página do projeto', 'Novidades'],
+    defaultId: 0,
+    cancelId: 0,
+  });
+  if (response === 1) openExternal(LINKS.site);
+  if (response === 2) openExternal(LINKS.releases);
+}
+
 function buildMenu() {
   const isMac = process.platform === 'darwin';
   const tabShortcuts = Array.from({ length: 9 }, (_, i) => ({
@@ -1180,7 +1207,20 @@ function buildMenu() {
   }));
 
   const template = [
-    ...(isMac ? [{ role: 'appMenu' }] : []),
+    ...(isMac ? [{
+      label: app.name,
+      submenu: [
+        { label: 'Sobre o Multiverse', click: showAbout },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    }] : []),
     {
       label: 'Contas',
       submenu: [
@@ -1226,6 +1266,20 @@ function buildMenu() {
       ],
     },
     { role: 'windowMenu' },
+    {
+      label: 'Ajuda',
+      role: 'help',
+      submenu: [
+        { label: 'Manual de uso', click: () => openExternal(LINKS.manual) },
+        { label: 'Manual do Claude Code (MCP)', click: () => openExternal(LINKS.manualClaudeCode) },
+        { type: 'separator' },
+        { label: 'Página do projeto', click: () => openExternal(LINKS.site) },
+        { label: 'Novidades (versões)', click: () => openExternal(LINKS.releases) },
+        { label: 'Relatar um problema', click: () => openExternal(LINKS.issues) },
+        // No Mac, "Sobre" fica no menu do app, como de costume.
+        ...(isMac ? [] : [{ type: 'separator' }, { label: 'Sobre o Multiverse', click: showAbout }]),
+      ],
+    },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
