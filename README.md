@@ -85,7 +85,7 @@ O app não tem certificado da Apple nem da Microsoft:
   2. Libere as contas desejadas pelo clique direito (aparece 🤖 na aba; com fundo verde quando o Claude Code está usando).
   3. Rode no terminal o comando de *Copiar comando do Claude Code*.
 
-  Ele lê a aba da conta e trabalha em abas filhas próprias (🤖): abre páginas, clica, digita e tira prints, em segundo plano, mesmo com o Multiverse minimizado. Clicando na aba dele, você vê a página ao vivo e pode interagir. Contas bloqueadas por PIN ficam inacessíveis. Passo a passo com prints: [manual/claude-code.md](manual/claude-code.md). Plano completo: [planos/mcp-claude-code.md](planos/mcp-claude-code.md).
+  Ele lê a aba da conta e trabalha em abas filhas próprias (🤖): abre páginas, clica, digita e tira prints, em segundo plano, mesmo com o Multiverse minimizado. Clicando na aba dele, você vê a página ao vivo e pode clicar e digitar nela. Contas bloqueadas por PIN ficam inacessíveis, e *Bloquear* corta o acesso na hora, inclusive de uma ação que esteja em andamento. Passo a passo com prints: [manual/claude-code.md](manual/claude-code.md). Plano completo: [planos/mcp-claude-code.md](planos/mcp-claude-code.md).
 - Os links externos abertos nas conversas vão para o navegador padrão.
 - Os popups de login (Google/Apple) abrem dentro do app, na sessão da aba que os abriu.
 - **Login com Google não funciona:** o Google bloqueia apps Electron ("Este navegador ou app pode não ser seguro"). Entre com e-mail: a claude.ai envia um código, sem senha.
