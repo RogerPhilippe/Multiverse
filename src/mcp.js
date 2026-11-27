@@ -40,8 +40,13 @@ function buildServer(api, version) {
   const server = new McpServer({ name: 'multiverse', version }, {
     instructions:
       'Multiverse é um app com várias contas da claude.ai, cada uma numa aba com o próprio login. ' +
-      'O usuário libera contas para você. A aba da conta é só leitura. Para navegar e agir, crie abas ' +
-      'filhas (create_child): elas usam o login da conta, ficam em segundo plano e só você as controla. ' +
+      'O usuário libera contas para você. A aba da conta é só leitura para você. ' +
+      'Para navegar e agir, crie abas filhas (create_child). Elas usam o login da conta e não tiram o ' +
+      'usuário da aba em que ele está. A aba filha aparece na barra do usuário, ao lado da conta. Ele pode ' +
+      'abri-la, ver a página ao vivo, clicar, digitar e fechar. Vocês dois agem na mesma página. Você pode ' +
+      'deixar uma ação pronta, como um formulário preenchido, e pedir que o usuário abra a aba filha e ' +
+      'conclua, por exemplo clicando em Salvar. Não refaça o trabalho em outra aba. Se o usuário mexeu na ' +
+      'página, rode snapshot de novo antes de agir. ' +
       'Fluxo típico: list_accounts → create_child → snapshot → click/type → snapshot/screenshot → close_child.',
   });
   const reg = (name, title, description, inputSchema, fn) =>
@@ -50,6 +55,7 @@ function buildServer(api, version) {
   // --- contas ---
   reg('list_accounts', 'Listar contas liberadas',
     'Lista as contas do Multiverse liberadas para você, com as abas filhas que você criou em cada uma. ' +
+    'O usuário pode ter fechado alguma, e todas somem quando o app fecha. ' +
     'Contas bloqueadas por PIN aparecem com locked: true e não podem ser usadas até o usuário desbloquear.',
     {}, async () => json(await api.listAccounts()));
 
@@ -65,13 +71,15 @@ function buildServer(api, version) {
 
   // --- abas filhas ---
   reg('create_child', 'Criar aba filha',
-    'Cria uma aba filha da conta, já logada com a sessão dela, e abre a URL. Fica em segundo plano ' +
-    '(não atrapalha o usuário). Limite: 5 por conta. Devolve child_id.',
+    'Cria uma aba filha da conta, já logada com a sessão dela, e abre a URL. ' +
+    'Não muda a aba que o usuário está vendo. A filha aparece na barra dele, e ele pode abri-la e usá-la. ' +
+    'Limite: 5 por conta. Devolve child_id.',
     { account_id: accountId, url: z.string().describe('endereço http(s)') },
     async ({ account_id, url }) => json(await api.createChild(account_id, url)));
 
   reg('close_child', 'Fechar aba filha',
-    'Fecha uma aba filha que você criou. O login da conta não é afetado.',
+    'Fecha uma aba filha que você criou. O login da conta não é afetado. ' +
+    'Não feche uma aba em que o usuário ainda vai concluir algo.',
     { child_id: childId }, async ({ child_id }) => json(await api.closeChild(child_id)));
 
   reg('navigate', 'Abrir URL na aba filha', 'Abre uma URL na aba filha e espera carregar.',

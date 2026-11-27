@@ -371,7 +371,7 @@ function childTab(child, parent, color, isLoading, locked) {
   if (parent.hasPin) tab.append(lockIcon(locked));
   if (child.createdBy === 'agent') {
     const bot = mcpIcon();
-    bot.title = 'Aba criada pelo Claude Code (você pode olhar e fechar)';
+    bot.title = 'Aba criada pelo Claude Code (você pode usar e fechar)';
     tab.append(bot);
   }
   tab.append(name, close);
