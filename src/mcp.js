@@ -51,7 +51,7 @@ function buildServer(api, version) {
   reg('list_accounts', 'Listar contas liberadas',
     'Lista as contas do Multiverse liberadas para você, com as abas filhas que você criou em cada uma. ' +
     'Contas bloqueadas por PIN aparecem com locked: true e não podem ser usadas até o usuário desbloquear.',
-    {}, async () => json(api.listAccounts()));
+    {}, async () => json(await api.listAccounts()));
 
   reg('read_account_tab', 'Ler a aba da conta',
     'Lê a URL, o título e o texto visível da aba da conta (somente leitura).',
@@ -72,7 +72,7 @@ function buildServer(api, version) {
 
   reg('close_child', 'Fechar aba filha',
     'Fecha uma aba filha que você criou. O login da conta não é afetado.',
-    { child_id: childId }, async ({ child_id }) => json(api.closeChild(child_id)));
+    { child_id: childId }, async ({ child_id }) => json(await api.closeChild(child_id)));
 
   reg('navigate', 'Abrir URL na aba filha', 'Abre uma URL na aba filha e espera carregar.',
     { child_id: childId, url: z.string().describe('endereço http(s)') },

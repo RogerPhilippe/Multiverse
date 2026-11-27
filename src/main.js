@@ -196,6 +196,15 @@ async function unlock(id, pin) {
   return { ok: true };
 }
 
+// Bloqueia de novo uma conta com PIN (e as filhas), como ao abrir o app. As páginas
+// continuam carregadas, só escondidas: ao desbloquear, tudo volta como estava.
+function lock(id) {
+  const account = state.accounts.find((a) => a.id === ownerId(id));
+  if (!account?.pin || !unlocked.has(account.id)) return;
+  unlocked.delete(account.id);
+  showActive();
+}
+
 // Depois de desbloquear/remover o PIN: carrega a aba ativa, se ainda não tinha carregado.
 function showActive() {
   const active = findTab(state.activeId);
@@ -255,7 +264,10 @@ function ensureView(account) {
     // para continuar ao alcance do Claude Code e nunca abrir o navegador do usuário.
     if (isAgent) {
       const target = normalizeUrl(url);
-      if (target && agentChildCount(account.parentId) < MAX_AGENT_CHILDREN) spawnAgentChild(account.parentId, target);
+      // Com a conta bloqueada, nenhuma filha nova (a página continua rodando por baixo).
+      if (target && !isLocked(account.parentId) && agentChildCount(account.parentId) < MAX_AGENT_CHILDREN) {
+        spawnAgentChild(account.parentId, target);
+      }
       return { action: 'deny' };
     }
     if (isInternal(url)) {
@@ -562,12 +574,18 @@ function closeChild(id) {
 }
 
 function showTabMenu(id) {
+  // Só para conta com PIN que está desbloqueada; na filha, bloqueia a conta toda.
+  const owner = state.accounts.find((a) => a.id === ownerId(id));
+  const lockItems = owner?.pin && !isLocked(id)
+    ? [{ label: 'Bloquear', click: () => lock(id) }]
+    : [];
   const child = children.find((c) => c.id === id);
   if (child) {
     Menu.buildFromTemplate([
       { label: 'Recarregar', click: () => views.get(id)?.webContents.reload() },
       { label: 'Copiar URL', enabled: !isLocked(id), click: () => clipboard.writeText(views.get(id)?.webContents.getURL() ?? child.url) },
       { type: 'separator' },
+      ...lockItems,
       { label: 'Fechar aba filha', click: () => closeChild(id) },
     ]).popup({ window: win });
     return;
@@ -578,7 +596,7 @@ function showTabMenu(id) {
   // PIN só se define/remove na conta (pai); as filhas seguem a regra dela.
   const pinItems = !account.pin
     ? [{ label: 'Definir PIN…', click: () => openPinDialog('set', id) }]
-    : [{ label: 'Remover PIN…', click: () => openPinDialog('remove', id) }];
+    : [...lockItems, { label: 'Remover PIN…', click: () => openPinDialog('remove', id) }];
   Menu.buildFromTemplate([
     { label: 'Nova aba filha…', enabled: !locked, click: () => { win.webContents.focus(); win.webContents.send('ui:add-child', id); } },
     { type: 'separator' },
@@ -664,7 +682,7 @@ async function startMcp() {
     mcpServer = await startMcpServer({
       port: state.mcp.port,
       getToken: mcpToken,
-      api: mcpApi,
+      api: guardedMcpApi,
       version: app.getVersion(),
       onActivity: markMcpActivity,
     });
@@ -713,10 +731,13 @@ function setMcpAllowed(id, allowed) {
 }
 
 // Conta que o Claude Code pode usar agora; senão, erro explicado.
+const lockedError = (account) =>
+  new ToolError(`A conta "${account.name}" está bloqueada por PIN. Peça ao usuário para desbloqueá-la no Multiverse.`);
+
 function mcpAccount(id) {
   const account = state.accounts.find((a) => a.id === id);
   if (!account?.mcpAllowed) throw new ToolError(`Conta "${id}" não existe ou não está liberada. Use list_accounts.`);
-  if (isLocked(id)) throw new ToolError(`A conta "${account.name}" está bloqueada por PIN. Peça ao usuário para desbloqueá-la no Multiverse.`);
+  if (isLocked(id)) throw lockedError(account);
   if (!win) throw new ToolError('A janela do Multiverse está fechada.');
   return account;
 }
@@ -1081,7 +1102,7 @@ const mcpApi = {
   },
 
   async waitFor(childId, { selector, text, timeoutMs }) {
-    const { wc } = agentTab(childId);
+    const { child, wc } = agentTab(childId);
     const start = Date.now();
     await waitLoad(wc, timeoutMs);
     if (!selector && !text) return { ok: true, waited_ms: Date.now() - start };
@@ -1092,7 +1113,9 @@ const mcpApi = {
           (el.getAttribute('aria-label') || '').includes(t) || (el.getAttribute('title') || '').includes(t));
       ${selector ? `if (!document.querySelector(${JSON.stringify(selector)})) return false;` : ''}
       ${text ? `if (!hasText(${JSON.stringify(text)})) return false;` : ''} return true; })()`;
+    const owner = state.accounts.find((a) => a.id === child.parentId);
     while (Date.now() - start < timeoutMs) {
+      if (isLocked(owner.id)) throw lockedError(owner); // bloqueada no meio da espera: para já
       try {
         if (await isolated(wc, check)) return { ok: true, waited_ms: Date.now() - start };
       } catch {} // a página pode estar trocando no meio
@@ -1119,6 +1142,16 @@ const mcpApi = {
     return truncate(json, maxChars);
   },
 };
+
+// O que o servidor MCP chama. Cada função confere o bloqueio no início (mcpAccount/agentTab);
+// aqui ele é conferido de novo ao terminar: se a conta foi bloqueada no meio da chamada
+// (ex.: "Bloquear" durante um carregamento), o resultado não sai, só o erro de bloqueio.
+const guardedMcpApi = Object.fromEntries(Object.entries(mcpApi).map(([name, fn]) => [name, async (...args) => {
+  const owner = typeof args[0] === 'string' ? state.accounts.find((a) => a.id === ownerId(args[0])) : undefined;
+  const result = await fn.apply(mcpApi, args);
+  if (owner && isLocked(owner.id)) throw lockedError(owner);
+  return result;
+}]));
 
 // ---------- IPC (barra de abas) ----------
 
